@@ -27,6 +27,11 @@ sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev
 
 Run `wails doctor` to confirm the environment.
 
+> **`wails doctor` reports `libwebkit — Not Found` on Arch-family distros.** That
+> is a false negative: it looks for a package named `webkit2gtk` (the 4.0 API),
+> while current distros ship `webkit2gtk-4.1`. The Makefile passes
+> `-tags webkit2_41` on Linux, and the app builds and runs. Don't chase it.
+
 ## Getting started
 
 ```sh
