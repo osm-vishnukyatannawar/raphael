@@ -121,6 +121,100 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class TasksResult {
+	    tasks: tasks.Task[];
+	    syncedAt: string;
+	    errorMessage: string;
+	    fromCacheOnly: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new TasksResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.tasks = this.convertValues(source["tasks"], tasks.Task);
+	        this.syncedAt = source["syncedAt"];
+	        this.errorMessage = source["errorMessage"];
+	        this.fromCacheOnly = source["fromCacheOnly"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
+export namespace settings {
+	
+	export class Settings {
+	    refreshIntervalSeconds: number;
+	    tasksSyncedAt: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Settings(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.refreshIntervalSeconds = source["refreshIntervalSeconds"];
+	        this.tasksSyncedAt = source["tasksSyncedAt"];
+	    }
+	}
+
+}
+
+export namespace tasks {
+	
+	export class Task {
+	    taskId: number;
+	    shortCode: string;
+	    name: string;
+	    projectCode: string;
+	    projectName: string;
+	    priority: string;
+	    statusType: string;
+	    statusColor: string;
+	    dueDate: string;
+	    modifiedOn: string;
+	    sprintName: string;
+	    competencyName: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Task(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.taskId = source["taskId"];
+	        this.shortCode = source["shortCode"];
+	        this.name = source["name"];
+	        this.projectCode = source["projectCode"];
+	        this.projectName = source["projectName"];
+	        this.priority = source["priority"];
+	        this.statusType = source["statusType"];
+	        this.statusColor = source["statusColor"];
+	        this.dueDate = source["dueDate"];
+	        this.modifiedOn = source["modifiedOn"];
+	        this.sprintName = source["sprintName"];
+	        this.competencyName = source["competencyName"];
+	    }
+	}
 
 }
 

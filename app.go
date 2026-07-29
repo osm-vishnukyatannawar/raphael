@@ -4,14 +4,24 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"log"
+	"net/url"
 	"runtime"
+
+	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"github.com/osm-vishnukyatannawar/raphael/internal/db"
 	"github.com/osm-vishnukyatannawar/raphael/internal/identity"
 	"github.com/osm-vishnukyatannawar/raphael/internal/pinestem"
 	"github.com/osm-vishnukyatannawar/raphael/internal/secret"
+	"github.com/osm-vishnukyatannawar/raphael/internal/settings"
+	"github.com/osm-vishnukyatannawar/raphael/internal/tasks"
 )
+
+// taskURLTemplate opens a task in the Pinestem web app. It is keyed by the
+// task's short code (REST-2408), not its numeric TaskID.
+const taskURLTemplate = "https://pinestem.com/dashboard.html#/tasks/%s/details/?companyId=%d"
 
 // App is the root object bound to the frontend. Exported methods on App become
 // callable from TypeScript via the generated bindings in frontend/wailsjs.
@@ -23,6 +33,8 @@ type App struct {
 	version  string
 	database *sql.DB
 	identity *identity.Service
+	tasks    *tasks.Service
+	settings *settings.Service
 
 	// startupErr is recorded rather than fatal: a window that explains it can't
 	// open its database is better than one that vanishes on launch.
@@ -81,7 +93,10 @@ func (a *App) startup(ctx context.Context) {
 			"and the password will not be saved")
 	}
 
-	a.identity = identity.New(database, pinestem.New(), store, keyringOK)
+	client := pinestem.New()
+	a.identity = identity.New(database, client, store, keyringOK)
+	a.settings = settings.New(database)
+	a.tasks = tasks.New(database, client, a.identity, a.settings)
 }
 
 // shutdown closes the database on window close.
@@ -169,4 +184,113 @@ func (a *App) SignOut() error {
 	}
 
 	return a.identity.SignOut(a.ctx)
+}
+
+// TasksResult carries the list plus a refresh error, so a failed refresh can
+// show a message *and* keep rendering the cached rows instead of blanking them.
+type TasksResult struct {
+	Tasks         []tasks.Task `json:"tasks"`
+	SyncedAt      string       `json:"syncedAt"`
+	ErrorMessage  string       `json:"errorMessage"`
+	FromCacheOnly bool         `json:"fromCacheOnly"`
+}
+
+// ListTasks returns the cached in-review tasks without hitting the network.
+func (a *App) ListTasks() TasksResult {
+	if a.tasks == nil {
+		return TasksResult{Tasks: []tasks.Task{}, ErrorMessage: "Raphael is not ready yet."}
+	}
+
+	list, err := a.tasks.Cached(a.ctx)
+	if err != nil {
+		log.Printf("list tasks: %v", err)
+
+		return TasksResult{Tasks: []tasks.Task{}, ErrorMessage: err.Error()}
+	}
+
+	return TasksResult{Tasks: list, SyncedAt: a.syncedAt()}
+}
+
+// RefreshTasks pulls live data from Pinestem and updates the cache.
+//
+// On failure it still returns whatever is cached, flagged FromCacheOnly, so a
+// dropped network shows a warning over a stale list rather than an empty page.
+func (a *App) RefreshTasks() TasksResult {
+	if a.tasks == nil {
+		return TasksResult{Tasks: []tasks.Task{}, ErrorMessage: "Raphael is not ready yet."}
+	}
+
+	list, err := a.tasks.Refresh(a.ctx)
+	if err != nil {
+		log.Printf("refresh tasks: %v", err)
+
+		cached, cacheErr := a.tasks.Cached(a.ctx)
+		if cacheErr != nil {
+			cached = []tasks.Task{}
+		}
+
+		return TasksResult{
+			Tasks:         cached,
+			SyncedAt:      a.syncedAt(),
+			ErrorMessage:  err.Error(),
+			FromCacheOnly: true,
+		}
+	}
+
+	return TasksResult{Tasks: list, SyncedAt: a.syncedAt()}
+}
+
+// GetSettings returns the stored preferences.
+func (a *App) GetSettings() (*settings.Settings, error) {
+	if a.settings == nil {
+		return nil, errors.New("raphael is not ready yet")
+	}
+
+	return a.settings.Get(a.ctx)
+}
+
+// SaveSettings stores the refresh interval and returns the settings as actually
+// persisted — the interval is clamped, so this may differ from what was sent.
+func (a *App) SaveSettings(refreshIntervalSeconds int64) (*settings.Settings, error) {
+	if a.settings == nil {
+		return nil, errors.New("raphael is not ready yet")
+	}
+
+	if _, err := a.settings.SetRefreshInterval(a.ctx, refreshIntervalSeconds); err != nil {
+		return nil, err
+	}
+
+	return a.settings.Get(a.ctx)
+}
+
+// OpenTask opens a task in the user's default browser.
+func (a *App) OpenTask(shortCode string) error {
+	if a.identity == nil {
+		return errors.New("raphael is not ready yet")
+	}
+	if shortCode == "" {
+		return errors.New("task has no short code")
+	}
+
+	creds, err := a.identity.Credentials(a.ctx)
+	if err != nil {
+		return err
+	}
+
+	wailsruntime.BrowserOpenURL(
+		a.ctx,
+		fmt.Sprintf(taskURLTemplate, url.PathEscape(shortCode), creds.CompanyID),
+	)
+
+	return nil
+}
+
+// syncedAt reports when the cache was last refreshed, or "" if never.
+func (a *App) syncedAt() string {
+	current, err := a.settings.Get(a.ctx)
+	if err != nil {
+		return ""
+	}
+
+	return current.TasksSyncedAt
 }

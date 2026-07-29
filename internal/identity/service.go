@@ -44,10 +44,14 @@ type Session struct {
 	SecretsInKeyring bool `json:"secretsInKeyring"`
 }
 
-// Credentials are the live token plus company, for making API calls.
+// Credentials is everything needed to call the Pinestem API on the user's
+// behalf. UserID belongs here rather than on Session because it is a request
+// parameter (Tasks/Filter's AssignedTo), not something the UI displays — and it
+// is per-company, so it only means anything alongside CompanyID.
 type Credentials struct {
 	Token     string
 	CompanyID int64
+	UserID    int64
 }
 
 type Service struct {
@@ -187,7 +191,11 @@ func (s *Service) Credentials(ctx context.Context) (*Credentials, error) {
 	}
 
 	if account.TokenFallback != nil {
-		return &Credentials{Token: *account.TokenFallback, CompanyID: account.CompanyID}, nil
+		return &Credentials{
+			Token:     *account.TokenFallback,
+			CompanyID: account.CompanyID,
+			UserID:    account.UserID,
+		}, nil
 	}
 
 	token, err := s.store.Get(secret.KeyPinestemToken)
@@ -195,7 +203,11 @@ func (s *Service) Credentials(ctx context.Context) (*Credentials, error) {
 		return nil, err
 	}
 
-	return &Credentials{Token: token, CompanyID: account.CompanyID}, nil
+	return &Credentials{
+		Token:     token,
+		CompanyID: account.CompanyID,
+		UserID:    account.UserID,
+	}, nil
 }
 
 // SignOut clears the session from both the database and the keyring. The

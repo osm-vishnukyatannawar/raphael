@@ -115,6 +115,38 @@ Authenticated calls need two headers, `AuthenticationToken` and `CompanyID`, whi
 why both are persisted. Use `Client.NewAuthenticatedRequest` rather than setting them
 by hand.
 
+## Tasks in review
+
+The main screen lists the tasks assigned to you that are in "In review",
+newest-modified first. Rows open the task in your browser. Auto-refresh defaults to
+60s and is configurable via the gear icon (`0` disables it); there is also a manual
+refresh button.
+
+Two calls per refresh, in order:
+
+1. `GET Projects/ProjectsDropdown` → every project you can read
+2. `GET Tasks/Filter` with one repeated `ProjectCode` per project
+
+Projects are fetched live rather than hardcoded because they get added and removed.
+
+**`AssignedTo` is per-company.** It takes the `UserId` from the auth response, which
+differs for the same person in each company — `vishnu.k@osmosys.co` is 1187 at
+Amphenol, 2286 at Osmosys, 4928 at TalonPro. `pinestem_account.user_id` stores the
+right one, so it must never be swapped for an employee ID from elsewhere.
+
+**`TaskStatusID = 4063`** ("3. In review") is hardcoded in `internal/pinestem/tasks.go`.
+Pinestem exposes no status-lookup endpoint — four plausible paths all return 404 — so
+this is the single place to change if a company numbers statuses differently.
+
+Tasks and projects are cached in SQLite and **replaced wholesale** on each refresh
+inside one transaction: a task leaving the queue must disappear, and a mid-refresh
+failure leaves the previous cache intact rather than blanking the list.
+
+```sh
+sqlite3 ~/.config/raphael/raphael.db \
+  'SELECT short_code, project_code, modified_on FROM task ORDER BY modified_on DESC;'
+```
+
 ## Icon
 
 `build/appicon.svg` is the source of truth; `make icon` rasterizes it to

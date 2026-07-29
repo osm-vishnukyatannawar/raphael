@@ -9,12 +9,22 @@ import (
 )
 
 type Querier interface {
+	DeleteAllProjects(ctx context.Context) error
+	DeleteAllTasks(ctx context.Context) error
 	DeletePinestemAccount(ctx context.Context) error
 	DeleteProfile(ctx context.Context) error
 	GetPinestemAccount(ctx context.Context) (PinestemAccount, error)
 	GetProfile(ctx context.Context) (AppProfile, error)
+	GetSettings(ctx context.Context) (AppSetting, error)
+	InsertProject(ctx context.Context, arg InsertProjectParams) error
+	InsertTask(ctx context.Context, arg InsertTaskParams) error
+	ListProjects(ctx context.Context) ([]Project, error)
+	ListTasks(ctx context.Context) ([]Task, error)
+	SetRefreshInterval(ctx context.Context, refreshIntervalSeconds int64) error
+	SetTasksSyncedAt(ctx context.Context, tasksSyncedAt *string) error
 	UpsertPinestemAccount(ctx context.Context, arg UpsertPinestemAccountParams) error
 	UpsertProfile(ctx context.Context, arg UpsertProfileParams) error
+	UpsertSettings(ctx context.Context, arg UpsertSettingsParams) error
 }
 
 var _ Querier = (*Queries)(nil)

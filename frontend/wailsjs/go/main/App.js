@@ -6,8 +6,28 @@ export function Bootstrap() {
   return window['go']['main']['App']['Bootstrap']();
 }
 
+export function GetSettings() {
+  return window['go']['main']['App']['GetSettings']();
+}
+
 export function Info() {
   return window['go']['main']['App']['Info']();
+}
+
+export function ListTasks() {
+  return window['go']['main']['App']['ListTasks']();
+}
+
+export function OpenTask(arg1) {
+  return window['go']['main']['App']['OpenTask'](arg1);
+}
+
+export function RefreshTasks() {
+  return window['go']['main']['App']['RefreshTasks']();
+}
+
+export function SaveSettings(arg1) {
+  return window['go']['main']['App']['SaveSettings'](arg1);
 }
 
 export function SetDisplayName(arg1) {

@@ -11,6 +11,12 @@ type AppProfile struct {
 	UpdatedAt   string `json:"updated_at"`
 }
 
+type AppSetting struct {
+	ID                     int64   `json:"id"`
+	RefreshIntervalSeconds int64   `json:"refresh_interval_seconds"`
+	TasksSyncedAt          *string `json:"tasks_synced_at"`
+}
+
 type PinestemAccount struct {
 	ID               int64   `json:"id"`
 	UserID           int64   `json:"user_id"`
@@ -27,4 +33,27 @@ type PinestemAccount struct {
 	DateTimeFormat   string  `json:"date_time_format"`
 	AuthenticatedAt  string  `json:"authenticated_at"`
 	TokenFallback    *string `json:"token_fallback"`
+}
+
+type Project struct {
+	ProjectID int64  `json:"project_id"`
+	Code      string `json:"code"`
+	Name      string `json:"name"`
+	StatusID  int64  `json:"status_id"`
+}
+
+type Task struct {
+	TaskID         int64  `json:"task_id"`
+	ShortCode      string `json:"short_code"`
+	Name           string `json:"name"`
+	ProjectCode    string `json:"project_code"`
+	ProjectName    string `json:"project_name"`
+	Priority       string `json:"priority"`
+	StatusType     string `json:"status_type"`
+	StatusColor    string `json:"status_color"`
+	DueDate        string `json:"due_date"`
+	ModifiedOn     string `json:"modified_on"`
+	SprintName     string `json:"sprint_name"`
+	CompetencyName string `json:"competency_name"`
+	SyncedAt       string `json:"synced_at"`
 }
