@@ -11,7 +11,7 @@ exercises the Go → TypeScript → Tailwind → shadcn pipeline end to end.
 
 | | Version |
 |---|---|
-| Go | 1.25+ |
+| Go | 1.26.4+ (see the `go` directive in `go.mod` — CI reads it directly) |
 | Node | 22+ |
 | pnpm | 11+ |
 | Wails CLI | v2.13.0 — `go install github.com/wailsapp/wails/v2/cmd/wails@v2.13.0` |
