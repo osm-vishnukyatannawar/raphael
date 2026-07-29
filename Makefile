@@ -11,7 +11,7 @@ ifeq ($(UNAME_S),Linux)
 endif
 
 .DEFAULT_GOAL := help
-.PHONY: help setup tools dev build lint lint-go lint-frontend fmt test typecheck generate clean
+.PHONY: help setup tools dev build lint lint-go lint-frontend fmt test typecheck generate icon clean
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -51,6 +51,10 @@ typecheck: ## Typecheck the frontend
 generate: ## Regenerate sqlc queries and Wails TypeScript bindings
 	go tool sqlc generate
 	wails generate module
+
+icon: ## Rasterize build/appicon.svg into the PNG and Windows .ico
+	rsvg-convert -w 1024 -h 1024 build/appicon.svg -o build/appicon.png
+	magick build/appicon.png -define icon:auto-resize=256,128,64,48,32,16 build/windows/icon.ico
 
 clean: ## Remove build output
 	rm -rf build/bin frontend/dist/* frontend/node_modules/.tmp

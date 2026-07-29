@@ -86,6 +86,45 @@ before anyone has run `wails dev`. Treat churn there as noise, not review surfac
   (Chromium). They are not the same engine. CI builds both on every push so a
   split surfaces on the commit that caused it.
 
+## Identity & Pinestem
+
+First launch onboards in two steps — Pinestem login, then the name Raphael should
+call you by (prefilled from the Pinestem account). Later launches load the session
+from SQLite and go straight in.
+
+**Where secrets live.** The Pinestem token *and* password go to the OS keyring
+(`raphael` service, keys `pinestem-token` / `pinestem-password`). SQLite stores only
+non-secret profile data — there is no password column in the schema. If no keyring
+is available the app degrades: the token falls back to SQLite's `token_fallback`
+column, the password is not stored, and the UI says so.
+
+Inspect what's stored:
+
+```sh
+sqlite3 ~/.config/raphael/raphael.db 'SELECT * FROM pinestem_account;'
+secret-tool search --all service raphael
+```
+
+**Detecting a failed login is not obvious.** Pinestem returns HTTP **200** for a
+rejected login, with `Status: false` (identical to success) and an *empty*
+`ErrorMessage`. The only reliable signal is whether `MultipleResults[0].TokenId` is
+present — `internal/pinestem` keys off that and nothing else. Both payload shapes are
+pinned as tests in `internal/pinestem/client_test.go`.
+
+Authenticated calls need two headers, `AuthenticationToken` and `CompanyID`, which is
+why both are persisted. Use `Client.NewAuthenticatedRequest` rather than setting them
+by hand.
+
+## Icon
+
+`build/appicon.svg` is the source of truth; `make icon` rasterizes it to
+`build/appicon.png` and `build/windows/icon.ico`.
+
+> On **KDE under Wayland** the window icon shows as a generic placeholder. That is not
+> a build problem — KWin ignores the GTK window icon and resolves `app_id` against an
+> installed `.desktop` file, which a dev build doesn't have. Verified working under
+> `GDK_BACKEND=x11` and in the packaged Windows build.
+
 ## Commits
 
 This repo follows [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/),

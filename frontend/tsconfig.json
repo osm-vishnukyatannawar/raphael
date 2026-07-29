@@ -1,4 +1,18 @@
 {
+  // Solution file: "files": [] means tsc builds only the referenced projects,
+  // and these compilerOptions are inert for compilation.
+  //
+  // The "paths" duplication below is deliberate and load-bearing: the shadcn
+  // CLI reads tsconfig.json (not tsconfig.app.json) to resolve the "@" alias.
+  // Without it, `shadcn add` writes components into a literal ./@/components
+  // directory instead of ./src/components. Keep in sync with tsconfig.app.json
+  // and vite.config.ts.
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./src/*"],
+      "@wails/*": ["./wailsjs/*"]
+    }
+  },
   "files": [],
   "references": [
     { "path": "./tsconfig.app.json" },
