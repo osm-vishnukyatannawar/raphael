@@ -1,0 +1,53 @@
+# Git hooks. Install with `make setup` (runs `go tool lefthook install`).
+#
+# Formatters use stage_fixed so their fixes land in the commit being made,
+# rather than leaving the working tree dirty after a "successful" commit.
+
+pre-commit:
+  parallel: true
+  jobs:
+    - name: go-fmt
+      glob: '*.go'
+      run: golangci-lint fmt {staged_files}
+      stage_fixed: true
+
+    - name: go-lint
+      glob: '*.go'
+      # Not scoped to staged files: several enabled linters are whole-package
+      # analyses, and passing a file subset makes them report false positives.
+      run: golangci-lint run ./...
+
+    - name: frontend-lint
+      root: frontend/
+      glob: '*.{ts,tsx}'
+      # wailsjs is generated and ESLint-ignored; without excluding it here,
+      # every commit that regenerates bindings prints "file ignored" warnings.
+      exclude:
+        - 'wailsjs/**'
+      run: pnpm exec eslint --fix --no-warn-ignored {staged_files}
+      stage_fixed: true
+
+    - name: frontend-format
+      root: frontend/
+      glob: '*.{ts,tsx,css,html,json,md}'
+      exclude:
+        - 'wailsjs/**'
+      run: pnpm exec prettier --write --log-level warn {staged_files}
+      stage_fixed: true
+
+commit-msg:
+  jobs:
+    - name: commitlint
+      # Binary lives in frontend/node_modules but the config is repo-root, so
+      # this must run from the repo root — do not add `root:` here.
+      run: frontend/node_modules/.bin/commitlint --edit {1}
+
+pre-push:
+  parallel: true
+  jobs:
+    - name: go-test
+      run: go test ./...
+
+    - name: frontend-typecheck
+      root: frontend/
+      run: pnpm exec tsc -b

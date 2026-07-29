@@ -1,0 +1,63 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  # standard = errcheck, govet, staticcheck, ineffassign, unused
+  default: standard
+  enable:
+    # Error handling
+    - errorlint # %w vs %v, errors.Is/As instead of == and type asserts
+    - wrapcheck # errors crossing a package boundary carry context
+    # Resource leaks — the classes this app's shape actually produces
+    - bodyclose # unclosed http.Response.Body
+    - sqlclosecheck # unclosed sql.Rows / sql.Stmt
+    - rowserrcheck # rows.Err() never checked after iterating
+    # Context discipline — matters once the sync engine has goroutines
+    - contextcheck # ctx dropped instead of propagated
+    - noctx # HTTP requests built without a context
+    # General
+    - revive
+    - misspell
+    - unconvert
+    - usestdlibvars
+
+  settings:
+    revive:
+      rules:
+        - name: exported
+          arguments:
+            - disableStutteringCheck
+    wrapcheck:
+      ignore-package-globs:
+        - github.com/osm-vishnukyatannawar/raphael/*
+
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - std-error-handling
+    paths:
+      - frontend
+      - internal/db/sqlc # sqlc output — regenerated, not hand-maintained
+    rules:
+      # Tests get more rope: table-driven setup and t.Fatalf make several of
+      # the production rules noise rather than signal.
+      - path: _test\.go
+        linters:
+          - wrapcheck
+          - contextcheck
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/osm-vishnukyatannawar/raphael
+  exclusions:
+    generated: lax
+    paths:
+      - internal/db/sqlc

@@ -1,0 +1,32 @@
+# Build output
+/build/bin/
+/frontend/dist/*
+!/frontend/dist/.gitkeep
+
+# Wails dev artifacts
+/frontend/node_modules/
+/frontend/node_modules/.tmp/
+*.tsbuildinfo
+
+# Go
+*.exe
+*.test
+*.out
+/vendor/
+
+# Local databases (the real one lives in the OS config dir, but keep strays out)
+*.db
+*.db-wal
+*.db-shm
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Editors / OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+*.swp

@@ -1,0 +1,139 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: '1.25'
+  NODE_VERSION: '22'
+  WAILS_VERSION: v2.13.0
+  GOLANGCI_VERSION: v2.12.2
+
+jobs:
+  commitlint:
+    name: Commit messages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # commitlint needs history to find the merge base
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+        working-directory: frontend
+      - name: Lint commits in this push/PR
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            FROM="${{ github.event.pull_request.base.sha }}"
+            TO="${{ github.event.pull_request.head.sha }}"
+          else
+            FROM="${{ github.event.before }}"
+            TO="${{ github.sha }}"
+          fi
+          # Skip the range check on a branch's first push, where FROM is all-zeros.
+          if [ "$FROM" = "0000000000000000000000000000000000000000" ]; then
+            frontend/node_modules/.bin/commitlint --last --verbose
+          else
+            frontend/node_modules/.bin/commitlint --from "$FROM" --to "$TO" --verbose
+          fi
+
+  lint-go:
+    name: Lint (Go)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Install WebKitGTK headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: ${{ env.GOLANGCI_VERSION }}
+
+  test-go:
+    name: Test (Go)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - run: go test -race ./...
+
+  lint-frontend:
+    name: Lint (frontend)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec tsc -b
+      - run: pnpm exec eslint .
+      - run: pnpm exec prettier --check .
+
+  build:
+    name: Build (${{ matrix.os }})
+    # Linux renders in WebKitGTK, Windows in WebView2 (Chromium). Building both
+    # on every push means a platform split surfaces on the commit that caused it.
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install WebKitGTK headers
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+
+      # webkit2_41 targets webkit2gtk-4.1; Wails still defaults to the 4.0 API,
+      # which current Ubuntu images no longer ship. Not applicable on Windows.
+      - name: Build (Linux)
+        if: runner.os == 'Linux'
+        run: wails build -tags webkit2_41 -ldflags "-X main.version=${{ github.sha }}"
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        run: wails build -ldflags "-X main.version=${{ github.sha }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: raphael-${{ runner.os }}
+          path: build/bin/*
+          if-no-files-found: error

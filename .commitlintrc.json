@@ -1,0 +1,12 @@
+{
+  "extends": ["@commitlint/config-conventional"],
+  "rules": {
+    "scope-enum": [
+      2,
+      "always",
+      ["db", "api", "sync", "ui", "ai", "config", "build", "ci", "deps", "repo"]
+    ],
+    "body-max-line-length": [0],
+    "footer-max-line-length": [0]
+  }
+}
