@@ -10,6 +10,7 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
+	"sync"
 
 	"github.com/pressly/goose/v3"
 	_ "modernc.org/sqlite" // registers the "sqlite" driver
@@ -58,7 +59,19 @@ func OpenAt(ctx context.Context, path string) (*sql.DB, error) {
 	return conn, nil
 }
 
+// migrateMu serialises migrations.
+//
+// goose configures itself through package-level globals: SetBaseFS, SetLogger
+// and SetDialect all mutate process-wide state that Up then reads. Two
+// concurrent OpenAt calls therefore race — the race detector catches
+// SetDialect writing while another goroutine's Up reads the same variable.
+// Migrations run once at startup, so serialising them costs nothing.
+var migrateMu sync.Mutex
+
 func migrate(conn *sql.DB) error {
+	migrateMu.Lock()
+	defer migrateMu.Unlock()
+
 	goose.SetBaseFS(migrationsFS)
 	goose.SetLogger(goose.NopLogger())
 

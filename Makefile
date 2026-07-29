@@ -42,8 +42,8 @@ fmt: ## Format Go and frontend sources in place
 	golangci-lint fmt ./...
 	cd frontend && pnpm exec prettier --write . && pnpm exec eslint . --fix
 
-test: ## Run Go tests
-	go test ./...
+test: ## Run Go tests (with -race, matching CI)
+	go test -race ./...
 
 typecheck: ## Typecheck the frontend
 	cd frontend && pnpm exec tsc -b
