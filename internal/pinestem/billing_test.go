@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -39,8 +40,11 @@ const billingBody = `{
 
 func testBillingRequest() pinestem.BillingRequest {
 	return pinestem.BillingRequest{
-		Token:            "tok-abc",
-		CompanyID:        453,
+		Token:     "tok-abc",
+		CompanyID: 453,
+		// CallerID is who is asking, EmpID is whose hours to return. They happen
+		// to match for the personal view and diverge for a whole-team monitor.
+		CallerID:         2286,
 		EmpID:            2286,
 		RoleID:           7,
 		IsProjectManager: false,
@@ -128,14 +132,20 @@ func TestBillingEntries(t *testing.T) {
 
 // A wide date range can exceed one page; truncating it would silently
 // under-report hours, which is worse than an error.
+//
+// serverPageCap models the behaviour that matters: Pinestem returns at most 100
+// rows however large a PageLimit is requested (50→50, but 100/200/500→100, all
+// verified live). An earlier version of this test honoured whatever PageLimit
+// the client asked for, which let a client-side limit of 200 look correct while
+// really stopping after one short page of 100 and dropping everything after it.
+const serverPageCap = 100
+
 func TestBillingEntriesFollowsPagination(t *testing.T) {
 	t.Parallel()
 
-	const (
-		total    = 450
-		pageSize = 200
-	)
+	const total = 450
 	var pagesSeen []float64
+	var requestedLimits []float64
 
 	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
@@ -144,6 +154,10 @@ func TestBillingEntriesFollowsPagination(t *testing.T) {
 		page, _ := body["PageNumber"].(float64)
 		pagesSeen = append(pagesSeen, page)
 
+		limit, _ := body["PageLimit"].(float64)
+		requestedLimits = append(requestedLimits, limit)
+
+		pageSize := min(int(limit), serverPageCap)
 		start := (int(page) - 1) * pageSize
 		count := min(pageSize, total-start)
 
@@ -166,10 +180,20 @@ func TestBillingEntriesFollowsPagination(t *testing.T) {
 	}
 
 	if len(entries) != total {
-		t.Errorf("got %d entries, want %d", len(entries), total)
+		t.Errorf("got %d entries, want %d — pages after the first were dropped", len(entries), total)
 	}
-	if len(pagesSeen) != 3 || pagesSeen[0] != 1 || pagesSeen[2] != 3 {
-		t.Errorf("pages requested = %v, want [1 2 3]", pagesSeen)
+	// Asking for more than the server will give makes the short-page check fire
+	// on a full page, which is exactly how the truncation happened.
+	for _, limit := range requestedLimits {
+		if limit > serverPageCap {
+			t.Errorf("requested PageLimit %.0f, but the server never returns more than %d",
+				limit, serverPageCap)
+
+			break
+		}
+	}
+	if len(pagesSeen) != 5 || pagesSeen[0] != 1 || pagesSeen[4] != 5 {
+		t.Errorf("pages requested = %v, want [1 2 3 4 5]", pagesSeen)
 	}
 }
 
@@ -203,5 +227,108 @@ func TestBillingEntriesSurfacesHTTPErrors(t *testing.T) {
 
 	if _, err := client.BillingEntries(t.Context(), testBillingRequest()); err == nil {
 		t.Fatal("expected an error for HTTP 401")
+	}
+}
+
+// A monitor asks for every member on a set of projects. Both halves of that are
+// easy to get wrong: EmpID must be absent (present-but-zero filters to nobody),
+// and isGetAllProjects must disagree with a non-empty ProjectIds or the filter
+// is ignored server-side.
+func TestBillingEntriesForWholeTeamOnSpecificProjects(t *testing.T) {
+	t.Parallel()
+
+	var gotBody map[string]any
+	var gotQuery string
+
+	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.RawQuery
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		_, _ = io.WriteString(w, `{"RecordCount":1,"MultipleResults":[
+		  {"Date":"2026-07-29 21:32:23","BillableHours":120,"NonBillableHours":0,
+		   "EmpID":4789,"EmpFirstName":"Kshitij Kumar","ProjectID":773,
+		   "ProjectCode":"RAD","ProjectName":"Radiovision","TaskName":"Build"}]}`)
+	})
+
+	req := testBillingRequest()
+	req.EmpID = 0
+	req.ProjectIDs = []int64{773, 782}
+
+	entries, err := client.BillingEntries(t.Context(), req)
+	if err != nil {
+		t.Fatalf("BillingEntries: %v", err)
+	}
+
+	if _, present := gotBody["EmpID"]; present {
+		t.Errorf("EmpID = %v was sent; it must be omitted to cover every member", gotBody["EmpID"])
+	}
+	if gotQuery != "isGetAllProjects=false" {
+		t.Errorf("query = %q, want isGetAllProjects=false alongside a project filter", gotQuery)
+	}
+	ids, _ := gotBody["ProjectIds"].([]any)
+	if len(ids) != 2 {
+		t.Errorf("ProjectIds = %v, want both", gotBody["ProjectIds"])
+	}
+	// LoggedInEmpID identifies the asker and must survive EmpID being dropped.
+	if gotBody["LoggedInEmpID"] != float64(2286) {
+		t.Errorf("LoggedInEmpID = %v, want 2286", gotBody["LoggedInEmpID"])
+	}
+
+	if len(entries) != 1 {
+		t.Fatalf("got %d entries, want 1", len(entries))
+	}
+	e := entries[0]
+	if e.EmpID != 4789 || e.EmpName != "Kshitij Kumar" {
+		t.Errorf("member = %d/%q, want 4789/Kshitij Kumar", e.EmpID, e.EmpName)
+	}
+	if e.ProjectID != 773 {
+		t.Errorf("ProjectID = %d, want 773 — needed to attribute the row", e.ProjectID)
+	}
+}
+
+func TestListProjectMembers(t *testing.T) {
+	t.Parallel()
+
+	var gotQuery url.Values
+
+	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.Query()
+		_, _ = io.WriteString(w, `{"RecordCount":2,"MultipleResults":[
+		  {"ID":4899,"Name":"Aakash Sheoran"},{"ID":2286,"Name":"Vishnu Kyatannawar"}]}`)
+	})
+
+	members, err := client.ListProjectMembers(t.Context(), "tok", 453, []string{"RAD", "RES"})
+	if err != nil {
+		t.Fatalf("ListProjectMembers: %v", err)
+	}
+
+	// Repeated ProjectCode returns the union across projects.
+	if got := gotQuery["ProjectCode"]; len(got) != 2 || got[0] != "RAD" || got[1] != "RES" {
+		t.Errorf("ProjectCode = %v, want [RAD RES]", got)
+	}
+	if len(members) != 2 || members[0].ID != 4899 {
+		t.Errorf("members = %+v", members)
+	}
+}
+
+// Asking with no codes would return every member in the company, which is never
+// what the caller means.
+func TestListProjectMembersWithNoCodesSkipsTheCall(t *testing.T) {
+	t.Parallel()
+
+	called := false
+	client := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+		_, _ = io.WriteString(w, `{"MultipleResults":[]}`)
+	})
+
+	members, err := client.ListProjectMembers(t.Context(), "tok", 453, nil)
+	if err != nil {
+		t.Fatalf("ListProjectMembers: %v", err)
+	}
+	if called {
+		t.Error("the API was called despite there being no project codes")
+	}
+	if members == nil || len(members) != 0 {
+		t.Errorf("members = %+v, want an empty slice", members)
 	}
 }
