@@ -85,8 +85,8 @@ type wireBilling struct {
 	BillableHours    int64  `json:"BillableHours"`
 	NonBillableHours int64  `json:"NonBillableHours"`
 	EmpID            int64  `json:"EmpID"`
-	// EmpFirstName carries the member's *full* display name ("Kshitij Kumar");
-	// EmpLastName is always null on this endpoint.
+	// EmpFirstName carries the member's *full* display name, not just the
+	// first name; EmpLastName is always null on this endpoint.
 	EmpFirstName string `json:"EmpFirstName"`
 	ProjectID    int64  `json:"ProjectID"`
 	ProjectCode  string `json:"ProjectCode"`

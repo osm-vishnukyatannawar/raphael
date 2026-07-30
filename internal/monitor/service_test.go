@@ -20,8 +20,8 @@ var now = day(2026, 7, 30)
 const (
 	projectX = int64(773)
 	projectY = int64(782)
-	empA     = int64(2286)
-	empB     = int64(4789)
+	empA     = int64(4001)
+	empB     = int64(4002)
 )
 
 type stubFetcher struct {
@@ -73,8 +73,8 @@ func sampleMonitor() monitor.Monitor {
 			{ProjectID: projectY, Code: "RES", Name: "Research and Development"},
 		},
 		Targets: []monitor.Target{
-			{EmpID: empA, EmpName: "Vishnu", ProjectID: monitor.AllProjects, TargetMinutes: 60 * 60},
-			{EmpID: empB, EmpName: "Kshitij", ProjectID: monitor.AllProjects, TargetMinutes: 140 * 60},
+			{EmpID: empA, EmpName: "Member A", ProjectID: monitor.AllProjects, TargetMinutes: 60 * 60},
+			{EmpID: empB, EmpName: "Member B", ProjectID: monitor.AllProjects, TargetMinutes: 140 * 60},
 		},
 	}
 }
@@ -250,8 +250,8 @@ func TestPerProjectTargetsAreScopedToTheirProject(t *testing.T) {
 
 	m := sampleMonitor()
 	m.Targets = []monitor.Target{
-		{EmpID: empA, EmpName: "Vishnu", ProjectID: projectX, TargetMinutes: 40 * 60},
-		{EmpID: empA, EmpName: "Vishnu", ProjectID: projectY, TargetMinutes: 20 * 60},
+		{EmpID: empA, EmpName: "Member A", ProjectID: projectX, TargetMinutes: 40 * 60},
+		{EmpID: empA, EmpName: "Member A", ProjectID: projectY, TargetMinutes: 20 * 60},
 	}
 	if _, err := svc.Save(t.Context(), m); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -293,7 +293,7 @@ func TestOverlappingMonitorsBothCountTheSameEntry(t *testing.T) {
 			Name:     name,
 			Projects: []monitor.Project{{ProjectID: projectX, Code: "RAD", Name: "Radiovision"}},
 			Targets: []monitor.Target{
-				{EmpID: empA, EmpName: "Vishnu", ProjectID: monitor.AllProjects, TargetMinutes: 20 * 60},
+				{EmpID: empA, EmpName: "Member A", ProjectID: monitor.AllProjects, TargetMinutes: 20 * 60},
 			},
 		})
 		if err != nil {
@@ -397,7 +397,7 @@ func TestPerDayRoundsUp(t *testing.T) {
 	m := sampleMonitor()
 	m.Targets = []monitor.Target{
 		// 100 minutes over 22 days is 4.54; it must not floor to 4.
-		{EmpID: empA, EmpName: "Vishnu", ProjectID: monitor.AllProjects, TargetMinutes: 100},
+		{EmpID: empA, EmpName: "Member A", ProjectID: monitor.AllProjects, TargetMinutes: 100},
 	}
 	if _, err := svc.Save(t.Context(), m); err != nil {
 		t.Fatalf("Save: %v", err)

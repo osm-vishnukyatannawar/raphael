@@ -23,7 +23,7 @@ const successBody = `{
     "UserId": 6406,
     "FirstName": "Venkata Krishna Dinesh",
     "LastName": "Madireddy",
-    "TokenId": "00f04112-ec84-4c97-bd89-8afa7c63368d",
+    "TokenId": "00000000-dead-4000-b000-000000000001",
     "IsProjectManager": false,
     "RoleId": 2294,
     "UserName": "someone@example.com",
@@ -82,7 +82,7 @@ func TestAuthenticateSuccess(t *testing.T) {
 		t.Errorf("credentials not sent as expected: %v", gotBody)
 	}
 
-	if acct.Token != "00f04112-ec84-4c97-bd89-8afa7c63368d" {
+	if acct.Token != "00000000-dead-4000-b000-000000000001" {
 		t.Errorf("Token = %q", acct.Token)
 	}
 	// The headline decode risk: CompanyID is a JSON string but must land as an int.

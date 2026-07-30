@@ -1,0 +1,202 @@
+name: Release
+
+# Tag-driven. Pushing v1.2.3 builds both platforms and publishes the release.
+#
+# The binaries are built on their own runners rather than cross-compiled: Wails
+# needs cgo for the webview, so a Windows build wants a real Windows toolchain
+# and a Linux build wants the WebKitGTK headers.
+on:
+  push:
+    tags: ['v*']
+
+# Required for `gh release create`.
+permissions:
+  contents: write
+
+env:
+  NODE_VERSION: '22'
+  WAILS_VERSION: v2.13.0
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: frontend/package.json
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      # A tag can point at any commit, including one that never went through CI
+      # on main. Re-checking here means a release can't ship untested code.
+      - run: go test -race ./...
+      - run: pnpm install --frozen-lockfile
+        working-directory: frontend
+      - run: pnpm exec tsc -b
+        working-directory: frontend
+
+  build:
+    name: Build (${{ matrix.os }})
+    needs: verify
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: frontend/package.json
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install WebKitGTK headers
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+
+      # webkit2_41 targets webkit2gtk-4.1; Wails still defaults to the 4.0 API,
+      # which current Ubuntu images no longer ship. Not applicable on Windows.
+      - name: Build (Linux)
+        if: runner.os == 'Linux'
+        run: wails build -tags webkit2_41 -ldflags "-X main.version=${{ github.ref_name }}"
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        run: wails build -ldflags "-X main.version=${{ github.ref_name }}"
+
+      # The desktop entry ships alongside the binary: without it installed, KDE
+      # shows a generic window icon and cannot activate the window from a
+      # notification. See the README.
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          STAGE="raphael-${{ github.ref_name }}-linux-amd64"
+          mkdir -p "$STAGE"
+          cp build/bin/raphael "$STAGE/"
+          cp build/linux/Raphael.desktop "$STAGE/"
+          cp build/appicon.png "$STAGE/raphael.png"
+          cp README.md "$STAGE/"
+          cat > "$STAGE/install.sh" <<'SH'
+          #!/usr/bin/env sh
+          # Installs Raphael for the current user.
+          set -eu
+          HERE=$(cd "$(dirname "$0")" && pwd)
+          install -Dm755 "$HERE/raphael"          "$HOME/.local/bin/raphael"
+          install -Dm644 "$HERE/raphael.png"      "$HOME/.local/share/icons/hicolor/512x512/apps/raphael.png"
+          install -Dm644 "$HERE/Raphael.desktop"  "$HOME/.local/share/applications/Raphael.desktop"
+          update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
+          gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
+          echo "Installed. Make sure ~/.local/bin is on your PATH."
+          SH
+          chmod +x "$STAGE/install.sh"
+          tar -czf "$STAGE.tar.gz" "$STAGE"
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $stage = "raphael-${{ github.ref_name }}-windows-amd64"
+          New-Item -ItemType Directory -Path $stage | Out-Null
+          Copy-Item build/bin/raphael.exe $stage/
+          Copy-Item README.md $stage/
+          Compress-Archive -Path $stage -DestinationPath "$stage.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ runner.os }}
+          path: |
+            *.tar.gz
+            *.zip
+          if-no-files-found: error
+
+  publish:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # release notes are generated from history
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: package-*
+          merge-multiple: true
+          path: dist
+
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum * | tee SHA256SUMS.txt
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cat > notes.md <<'EOF'
+          Raphael is a desktop assistant for [Pinestem](https://pinestem.com): it shows the
+          tasks waiting on your review, alerts you when a new one arrives, tracks the hours
+          you have billed, and monitors monthly billing targets across a group of projects.
+
+          ## Install
+
+          **Linux** — needs `webkit2gtk-4.1` and `gtk3` installed.
+
+          ```sh
+          tar -xzf raphael-VERSION-linux-amd64.tar.gz
+          cd raphael-VERSION-linux-amd64
+          ./install.sh
+          ```
+
+          The installer places the binary in `~/.local/bin` and registers the desktop entry.
+          That entry matters: without it KDE shows a generic window icon and cannot bring the
+          window forward from a notification.
+
+          **Windows** — unzip and run `raphael.exe`. It is unsigned, so SmartScreen will warn
+          on first launch.
+
+          ## Verify your download
+
+          ```sh
+          sha256sum -c SHA256SUMS.txt --ignore-missing
+          ```
+
+          ## First run
+
+          Sign in with your Pinestem credentials. The token goes to your OS keyring
+          (KWallet / GNOME Keyring / Windows Credential Manager), never into the database.
+          Everything else lives in a local SQLite file under `~/.config/raphael`.
+
+          On Wayland an application cannot focus itself on demand, so "bring to front" may
+          only flag the window. Clicking the notification works, or add a KWin rule — see the
+          README.
+          EOF
+          sed -i "s/VERSION/${GITHUB_REF_NAME}/g" notes.md
+
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "Raphael ${GITHUB_REF_NAME}" \
+            --notes-file notes.md \
+            --generate-notes \
+            --verify-tag \
+            dist/*

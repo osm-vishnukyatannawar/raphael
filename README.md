@@ -347,6 +347,23 @@ sqlite3 ~/.config/raphael/raphael.db \
 > installed `.desktop` file, which a dev build doesn't have. Verified working under
 > `GDK_BACKEND=x11` and in the packaged Windows build.
 
+## Releases
+
+Tag-driven. Pushing a `v*` tag runs `.github/workflows/release.yml`, which re-runs
+the tests, builds both platforms on their own runners, and publishes a GitHub release
+with the archives and a `SHA256SUMS.txt`.
+
+```sh
+git tag -a v1.2.3 -m "Raphael v1.2.3"
+git push origin v1.2.3
+```
+
+The binaries are **not** cross-compiled. Wails needs cgo for the webview, so Windows
+is built on a Windows runner and Linux on a Linux one with the WebKitGTK headers.
+
+The version shown in the app comes from `-ldflags "-X main.version=<tag>"`, so a
+build made any other way reports `dev`.
+
 ## Commits
 
 This repo follows [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/),

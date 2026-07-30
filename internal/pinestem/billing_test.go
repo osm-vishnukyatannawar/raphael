@@ -245,7 +245,7 @@ func TestBillingEntriesForWholeTeamOnSpecificProjects(t *testing.T) {
 		_ = json.NewDecoder(r.Body).Decode(&gotBody)
 		_, _ = io.WriteString(w, `{"RecordCount":1,"MultipleResults":[
 		  {"Date":"2026-07-29 21:32:23","BillableHours":120,"NonBillableHours":0,
-		   "EmpID":4789,"EmpFirstName":"Kshitij Kumar","ProjectID":773,
+		   "EmpID":4001,"EmpFirstName":"Sample Member","ProjectID":773,
 		   "ProjectCode":"RAD","ProjectName":"Radiovision","TaskName":"Build"}]}`)
 	})
 
@@ -277,8 +277,8 @@ func TestBillingEntriesForWholeTeamOnSpecificProjects(t *testing.T) {
 		t.Fatalf("got %d entries, want 1", len(entries))
 	}
 	e := entries[0]
-	if e.EmpID != 4789 || e.EmpName != "Kshitij Kumar" {
-		t.Errorf("member = %d/%q, want 4789/Kshitij Kumar", e.EmpID, e.EmpName)
+	if e.EmpID != 4001 || e.EmpName != "Sample Member" {
+		t.Errorf("member = %d/%q, want 4001/Sample Member", e.EmpID, e.EmpName)
 	}
 	if e.ProjectID != 773 {
 		t.Errorf("ProjectID = %d, want 773 — needed to attribute the row", e.ProjectID)
@@ -293,7 +293,7 @@ func TestListProjectMembers(t *testing.T) {
 	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		gotQuery = r.URL.Query()
 		_, _ = io.WriteString(w, `{"RecordCount":2,"MultipleResults":[
-		  {"ID":4899,"Name":"Aakash Sheoran"},{"ID":2286,"Name":"Vishnu Kyatannawar"}]}`)
+		  {"ID":4001,"Name":"Sample Member"},{"ID":4002,"Name":"Second Member"}]}`)
 	})
 
 	members, err := client.ListProjectMembers(t.Context(), "tok", 453, []string{"RAD", "RES"})
@@ -305,7 +305,7 @@ func TestListProjectMembers(t *testing.T) {
 	if got := gotQuery["ProjectCode"]; len(got) != 2 || got[0] != "RAD" || got[1] != "RES" {
 		t.Errorf("ProjectCode = %v, want [RAD RES]", got)
 	}
-	if len(members) != 2 || members[0].ID != 4899 {
+	if len(members) != 2 || members[0].ID != 4001 {
 		t.Errorf("members = %+v", members)
 	}
 }
