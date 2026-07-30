@@ -6,6 +6,10 @@ export function Bootstrap() {
   return window['go']['main']['App']['Bootstrap']();
 }
 
+export function DeleteMonitor(arg1) {
+  return window['go']['main']['App']['DeleteMonitor'](arg1);
+}
+
 export function GetBilling() {
   return window['go']['main']['App']['GetBilling']();
 }
@@ -14,12 +18,28 @@ export function GetBillingForDate(arg1) {
   return window['go']['main']['App']['GetBillingForDate'](arg1);
 }
 
+export function GetMonitor(arg1) {
+  return window['go']['main']['App']['GetMonitor'](arg1);
+}
+
 export function GetSettings() {
   return window['go']['main']['App']['GetSettings']();
 }
 
 export function Info() {
   return window['go']['main']['App']['Info']();
+}
+
+export function ListMonitors() {
+  return window['go']['main']['App']['ListMonitors']();
+}
+
+export function ListProjectMembers(arg1) {
+  return window['go']['main']['App']['ListProjectMembers'](arg1);
+}
+
+export function ListSelectableProjects() {
+  return window['go']['main']['App']['ListSelectableProjects']();
 }
 
 export function ListTasks() {
@@ -38,8 +58,16 @@ export function RefreshBilling() {
   return window['go']['main']['App']['RefreshBilling']();
 }
 
+export function RefreshMonitors() {
+  return window['go']['main']['App']['RefreshMonitors']();
+}
+
 export function RefreshTasks() {
   return window['go']['main']['App']['RefreshTasks']();
+}
+
+export function SaveMonitor(arg1) {
+  return window['go']['main']['App']['SaveMonitor'](arg1);
 }
 
 export function SaveSettings(arg1) {

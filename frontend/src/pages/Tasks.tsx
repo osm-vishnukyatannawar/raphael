@@ -1,18 +1,8 @@
-import {
-  AlertTriangle,
-  Building2,
-  Check,
-  ExternalLink,
-  LogOut,
-  RefreshCw,
-  Settings as SettingsIcon,
-} from 'lucide-react'
+import { AlertTriangle, Check, ExternalLink, RefreshCw } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import BillingBar from '@/components/BillingBar'
-import SettingsDialog from '@/components/SettingsDialog'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -25,20 +15,13 @@ import {
 } from '@/lib/time'
 import {
   GetBilling,
-  GetSettings,
   ListTasks,
   MarkTasksSeen,
   OpenTask,
   RefreshBilling,
   RefreshTasks,
-  SignOut,
 } from '@wails/go/main/App'
-import {
-  type identity,
-  main,
-  type settings,
-  type tasks,
-} from '@wails/go/models'
+import { main, type settings, type tasks } from '@wails/go/models'
 import { EventsOff, EventsOn } from '@wails/runtime/runtime'
 
 /** Emitted by the Go pollers — see internal/poller for why they live there. */
@@ -46,33 +29,15 @@ const EVENT_TASKS = 'tasks:updated'
 const EVENT_BILLING = 'billing:updated'
 
 type Props = {
-  session: identity.Session
-  onSignedOut: () => void
+  /** Read-only here; the settings dialog lives in the shell. */
+  prefs: settings.Settings | null
 }
 
-function greeting(now = new Date()): string {
-  const hour = now.getHours()
-  if (hour < 12) return 'Good morning'
-  if (hour < 18) return 'Good afternoon'
-  return 'Good evening'
-}
-
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean)
-  if (parts.length === 0) return '?'
-  const first = parts[0][0]
-  const last = parts.length > 1 ? parts[parts.length - 1][0] : ''
-
-  return (first + last).toUpperCase()
-}
-
-export default function Tasks({ session, onSignedOut }: Props) {
+export default function Tasks({ prefs }: Props) {
   const [result, setResult] = useState<main.TasksResult | null>(null)
   const [billing, setBilling] = useState<main.BillingResult | null>(null)
-  const [prefs, setPrefs] = useState<settings.Settings | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [refreshingBilling, setRefreshingBilling] = useState(false)
-  const [settingsOpen, setSettingsOpen] = useState(false)
 
   // Held in refs so a manual refresh can't stack on top of itself, without
   // making the callbacks depend on the spinner state.
@@ -109,15 +74,13 @@ export default function Tasks({ session, onSignedOut }: Props) {
     let cancelled = false
 
     void (async () => {
-      const [cachedTasks, cachedBilling, loadedPrefs] = await Promise.all([
+      const [cachedTasks, cachedBilling] = await Promise.all([
         ListTasks(),
         GetBilling(),
-        GetSettings(),
       ])
       if (cancelled) return
       setResult(cachedTasks)
       setBilling(cachedBilling)
-      setPrefs(loadedPrefs)
     })()
 
     return () => {
@@ -175,130 +138,81 @@ export default function Tasks({ session, onSignedOut }: Props) {
   }
 
   return (
-    <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between border-b px-6 py-3">
-        <div className="flex items-center gap-3">
-          <Avatar className="size-8">
-            <AvatarFallback className="text-xs">
-              {initials(session.displayName)}
-            </AvatarFallback>
-          </Avatar>
-          <div className="leading-tight">
-            <p className="text-sm font-medium">
-              {greeting()}, {session.displayName.split(' ')[0]}
-            </p>
-            <p className="text-muted-foreground flex items-center gap-1 text-xs">
-              <Building2 className="size-3" />
-              {session.companyName}
-            </p>
-          </div>
+    <main className="mx-auto w-full max-w-3xl p-6">
+      <BillingBar
+        result={billing}
+        refreshing={refreshingBilling}
+        onRefresh={() => void refreshBilling()}
+      />
+
+      <div className="mb-4 flex items-end justify-between">
+        <div>
+          <h1 className="flex items-center gap-2 text-lg font-medium">
+            In review{!loading && ` (${list.length})`}
+            {newCount > 0 && <Badge>{newCount} new</Badge>}
+          </h1>
+          <p className="text-muted-foreground text-xs">
+            {result?.syncedAt
+              ? `Updated ${relativeTime(parseISO(result.syncedAt))}`
+              : 'Not synced yet'}
+            {prefs && prefs.refreshIntervalSeconds > 0
+              ? ` · auto every ${prefs.refreshIntervalSeconds}s`
+              : ' · auto-refresh off'}
+          </p>
         </div>
 
-        <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            title="Settings"
-            onClick={() => setSettingsOpen(true)}
-          >
-            <SettingsIcon className="size-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => void SignOut().then(onSignedOut)}
-          >
-            <LogOut className="size-4" />
-            Sign out
-          </Button>
-        </div>
-      </header>
-
-      <main className="mx-auto w-full max-w-3xl flex-1 overflow-y-auto p-6">
-        <BillingBar
-          result={billing}
-          refreshing={refreshingBilling}
-          onRefresh={() => void refreshBilling()}
-        />
-
-        <div className="mb-4 flex items-end justify-between">
-          <div>
-            <h1 className="flex items-center gap-2 text-lg font-medium">
-              In review{!loading && ` (${list.length})`}
-              {newCount > 0 && <Badge>{newCount} new</Badge>}
-            </h1>
-            <p className="text-muted-foreground text-xs">
-              {result?.syncedAt
-                ? `Updated ${relativeTime(parseISO(result.syncedAt))}`
-                : 'Not synced yet'}
-              {prefs && prefs.refreshIntervalSeconds > 0
-                ? ` · auto every ${prefs.refreshIntervalSeconds}s`
-                : ' · auto-refresh off'}
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {/* Only offered when there is something to clear. */}
-            {newCount > 0 && (
-              <Button variant="ghost" size="sm" onClick={() => void markSeen()}>
-                <Check className="size-4" />
-                Mark all seen
-              </Button>
-            )}
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={refreshing}
-              onClick={() => void refresh()}
-            >
-              <RefreshCw
-                className={`size-4 ${refreshing ? 'animate-spin' : ''}`}
-              />
-              Refresh
+        <div className="flex items-center gap-2">
+          {/* Only offered when there is something to clear. */}
+          {newCount > 0 && (
+            <Button variant="ghost" size="sm" onClick={() => void markSeen()}>
+              <Check className="size-4" />
+              Mark all seen
             </Button>
-          </div>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={refreshing}
+            onClick={() => void refresh()}
+          >
+            <RefreshCw
+              className={`size-4 ${refreshing ? 'animate-spin' : ''}`}
+            />
+            Refresh
+          </Button>
         </div>
+      </div>
 
-        {/* A failed refresh warns without discarding the cached rows below. */}
-        {result?.errorMessage && (
-          <Alert variant="destructive" className="mb-4">
-            <AlertTriangle className="size-4" />
-            <AlertDescription>
-              {result.fromCacheOnly
-                ? `Showing cached tasks — refresh failed: ${result.errorMessage}`
-                : result.errorMessage}
-            </AlertDescription>
-          </Alert>
-        )}
-
-        {loading ? (
-          <div className="space-y-2">
-            <Skeleton className="h-20 w-full" />
-            <Skeleton className="h-20 w-full" />
-            <Skeleton className="h-20 w-full" />
-          </div>
-        ) : list.length === 0 ? (
-          <div className="text-muted-foreground rounded-lg border border-dashed py-16 text-center text-sm">
-            Nothing in review right now.
-          </div>
-        ) : (
-          <ul className="divide-y rounded-lg border">
-            {list.map((task) => (
-              <TaskRow key={task.taskId} task={task} onOpen={open} />
-            ))}
-          </ul>
-        )}
-      </main>
-
-      {prefs && (
-        <SettingsDialog
-          open={settingsOpen}
-          onOpenChange={setSettingsOpen}
-          current={prefs}
-          onSaved={setPrefs}
-        />
+      {/* A failed refresh warns without discarding the cached rows below. */}
+      {result?.errorMessage && (
+        <Alert variant="destructive" className="mb-4">
+          <AlertTriangle className="size-4" />
+          <AlertDescription>
+            {result.fromCacheOnly
+              ? `Showing cached tasks — refresh failed: ${result.errorMessage}`
+              : result.errorMessage}
+          </AlertDescription>
+        </Alert>
       )}
-    </div>
+
+      {loading ? (
+        <div className="space-y-2">
+          <Skeleton className="h-20 w-full" />
+          <Skeleton className="h-20 w-full" />
+          <Skeleton className="h-20 w-full" />
+        </div>
+      ) : list.length === 0 ? (
+        <div className="text-muted-foreground rounded-lg border border-dashed py-16 text-center text-sm">
+          Nothing in review right now.
+        </div>
+      ) : (
+        <ul className="divide-y rounded-lg border">
+          {list.map((task) => (
+            <TaskRow key={task.taskId} task={task} onOpen={open} />
+          ))}
+        </ul>
+      )}
+    </main>
   )
 }
 

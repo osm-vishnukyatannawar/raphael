@@ -186,6 +186,42 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class MonitorsResult {
+	    monitors: monitor.Progress[];
+	    syncedAt: string;
+	    errorMessage: string;
+	    fromCacheOnly: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new MonitorsResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.monitors = this.convertValues(source["monitors"], monitor.Progress);
+	        this.syncedAt = source["syncedAt"];
+	        this.errorMessage = source["errorMessage"];
+	        this.fromCacheOnly = source["fromCacheOnly"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class SignInResult {
 	    session?: identity.Session;
 	    invalidLogin: boolean;
@@ -261,6 +297,208 @@ export namespace main {
 
 }
 
+export namespace monitor {
+	
+	export class Target {
+	    empId: number;
+	    empName: string;
+	    projectId: number;
+	    targetMinutes: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Target(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.empId = source["empId"];
+	        this.empName = source["empName"];
+	        this.projectId = source["projectId"];
+	        this.targetMinutes = source["targetMinutes"];
+	    }
+	}
+	export class Project {
+	    projectId: number;
+	    code: string;
+	    name: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Project(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.projectId = source["projectId"];
+	        this.code = source["code"];
+	        this.name = source["name"];
+	    }
+	}
+	export class Monitor {
+	    id: number;
+	    name: string;
+	    projects: Project[];
+	    targets: Target[];
+	
+	    static createFrom(source: any = {}) {
+	        return new Monitor(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.projects = this.convertValues(source["projects"], Project);
+	        this.targets = this.convertValues(source["targets"], Target);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class RowProgress {
+	    empId: number;
+	    empName: string;
+	    projectId: number;
+	    projectName: string;
+	    targetMinutes: number;
+	    billableMinutes: number;
+	    nonBillableMinutes: number;
+	    shortfallMinutes: number;
+	    expectedByNowMinutes: number;
+	    neededPerDayMinutes: number;
+	    onTrack: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new RowProgress(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.empId = source["empId"];
+	        this.empName = source["empName"];
+	        this.projectId = source["projectId"];
+	        this.projectName = source["projectName"];
+	        this.targetMinutes = source["targetMinutes"];
+	        this.billableMinutes = source["billableMinutes"];
+	        this.nonBillableMinutes = source["nonBillableMinutes"];
+	        this.shortfallMinutes = source["shortfallMinutes"];
+	        this.expectedByNowMinutes = source["expectedByNowMinutes"];
+	        this.neededPerDayMinutes = source["neededPerDayMinutes"];
+	        this.onTrack = source["onTrack"];
+	    }
+	}
+	export class Progress {
+	    monitorId: number;
+	    name: string;
+	    periodStart: string;
+	    periodEnd: string;
+	    targetMinutes: number;
+	    billableMinutes: number;
+	    nonBillableMinutes: number;
+	    shortfallMinutes: number;
+	    expectedByNowMinutes: number;
+	    remainingWorkingDays: number;
+	    neededPerDayMinutes: number;
+	    onTrack: boolean;
+	    projects: Project[];
+	    rows: RowProgress[];
+	
+	    static createFrom(source: any = {}) {
+	        return new Progress(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.monitorId = source["monitorId"];
+	        this.name = source["name"];
+	        this.periodStart = source["periodStart"];
+	        this.periodEnd = source["periodEnd"];
+	        this.targetMinutes = source["targetMinutes"];
+	        this.billableMinutes = source["billableMinutes"];
+	        this.nonBillableMinutes = source["nonBillableMinutes"];
+	        this.shortfallMinutes = source["shortfallMinutes"];
+	        this.expectedByNowMinutes = source["expectedByNowMinutes"];
+	        this.remainingWorkingDays = source["remainingWorkingDays"];
+	        this.neededPerDayMinutes = source["neededPerDayMinutes"];
+	        this.onTrack = source["onTrack"];
+	        this.projects = this.convertValues(source["projects"], Project);
+	        this.rows = this.convertValues(source["rows"], RowProgress);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
+
+}
+
+export namespace pinestem {
+	
+	export class Member {
+	    id: number;
+	    name: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Member(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	    }
+	}
+	export class Project {
+	    projectId: number;
+	    code: string;
+	    name: string;
+	    statusId: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Project(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.projectId = source["projectId"];
+	        this.code = source["code"];
+	        this.name = source["name"];
+	        this.statusId = source["statusId"];
+	    }
+	}
+
+}
+
 export namespace settings {
 	
 	export class Settings {
@@ -272,6 +510,7 @@ export namespace settings {
 	    notificationTimeoutSeconds: number;
 	    tasksSyncedAt: string;
 	    billingSyncedAt: string;
+	    monitorsSyncedAt: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
@@ -287,6 +526,7 @@ export namespace settings {
 	        this.notificationTimeoutSeconds = source["notificationTimeoutSeconds"];
 	        this.tasksSyncedAt = source["tasksSyncedAt"];
 	        this.billingSyncedAt = source["billingSyncedAt"];
+	        this.monitorsSyncedAt = source["monitorsSyncedAt"];
 	    }
 	}
 

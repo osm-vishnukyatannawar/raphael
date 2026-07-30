@@ -21,12 +21,43 @@ type AppSetting struct {
 	WeekStartDay                  int64   `json:"week_start_day"`
 	BillingSyncedAt               *string `json:"billing_synced_at"`
 	NotificationTimeoutSeconds    int64   `json:"notification_timeout_seconds"`
+	MonitorsSyncedAt              *string `json:"monitors_synced_at"`
 }
 
 type BillingDay struct {
 	Day                string `json:"day"`
 	BillableMinutes    int64  `json:"billable_minutes"`
 	NonBillableMinutes int64  `json:"non_billable_minutes"`
+}
+
+type Monitor struct {
+	ID        int64  `json:"id"`
+	Name      string `json:"name"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+type MonitorActual struct {
+	MonitorID          int64 `json:"monitor_id"`
+	EmpID              int64 `json:"emp_id"`
+	ProjectID          int64 `json:"project_id"`
+	BillableMinutes    int64 `json:"billable_minutes"`
+	NonBillableMinutes int64 `json:"non_billable_minutes"`
+}
+
+type MonitorProject struct {
+	MonitorID   int64  `json:"monitor_id"`
+	ProjectID   int64  `json:"project_id"`
+	ProjectCode string `json:"project_code"`
+	ProjectName string `json:"project_name"`
+}
+
+type MonitorTarget struct {
+	MonitorID     int64  `json:"monitor_id"`
+	EmpID         int64  `json:"emp_id"`
+	EmpName       string `json:"emp_name"`
+	ProjectID     int64  `json:"project_id"`
+	TargetMinutes int64  `json:"target_minutes"`
 }
 
 type PinestemAccount struct {

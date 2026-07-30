@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Skeleton } from '@/components/ui/skeleton'
-import Tasks from '@/pages/Tasks'
+import Home from '@/pages/Home'
 import Onboarding from '@/pages/Onboarding'
 import { Bootstrap } from '@wails/go/main/App'
 import { type identity } from '@wails/go/models'
@@ -62,7 +62,7 @@ export default function App() {
 
     case 'ready':
       return (
-        <Tasks
+        <Home
           session={state.session}
           onSignedOut={() => setState({ status: 'onboarding' })}
         />

@@ -16,7 +16,7 @@ import (
 
 // Fetcher is the slice of the Pinestem client this package needs.
 type Fetcher interface {
-	ListProjects(ctx context.Context, token string, companyID int64) ([]pinestem.Project, error)
+	ListProjects(ctx context.Context, token string, companyID int64, statuses []int) ([]pinestem.Project, error)
 	ListReviewTasks(
 		ctx context.Context, token string, companyID, userID int64, projectCodes []string,
 	) ([]pinestem.Task, error)
@@ -122,7 +122,7 @@ func (s *Service) Refresh(ctx context.Context) (*Result, error) {
 	}
 	seeding := current.TasksSyncedAt == ""
 
-	projects, err := s.fetcher.ListProjects(ctx, creds.Token, creds.CompanyID)
+	projects, err := s.fetcher.ListProjects(ctx, creds.Token, creds.CompanyID, pinestem.ActiveProjectStatuses)
 	if err != nil {
 		return nil, err
 	}

@@ -56,6 +56,7 @@ type Settings struct {
 	NotificationTimeoutSeconds int64  `json:"notificationTimeoutSeconds"`
 	TasksSyncedAt              string `json:"tasksSyncedAt"`
 	BillingSyncedAt            string `json:"billingSyncedAt"`
+	MonitorsSyncedAt           string `json:"monitorsSyncedAt"`
 }
 
 // NotificationTimeout is the configured duration, and whether it should stay up
@@ -113,6 +114,9 @@ func (s *Service) Get(ctx context.Context) (*Settings, error) {
 	}
 	if row.BillingSyncedAt != nil {
 		out.BillingSyncedAt = *row.BillingSyncedAt
+	}
+	if row.MonitorsSyncedAt != nil {
+		out.MonitorsSyncedAt = *row.MonitorsSyncedAt
 	}
 
 	return &out, nil

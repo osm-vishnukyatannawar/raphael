@@ -64,7 +64,7 @@ func (q *Queries) DeleteAllTasks(ctx context.Context) error {
 }
 
 const getSettings = `-- name: GetSettings :one
-SELECT id, refresh_interval_seconds, tasks_synced_at, notify_new_tasks, focus_on_new_task, billing_refresh_interval_seconds, week_start_day, billing_synced_at, notification_timeout_seconds FROM app_settings WHERE id = 1
+SELECT id, refresh_interval_seconds, tasks_synced_at, notify_new_tasks, focus_on_new_task, billing_refresh_interval_seconds, week_start_day, billing_synced_at, notification_timeout_seconds, monitors_synced_at FROM app_settings WHERE id = 1
 `
 
 func (q *Queries) GetSettings(ctx context.Context) (AppSetting, error) {
@@ -80,6 +80,7 @@ func (q *Queries) GetSettings(ctx context.Context) (AppSetting, error) {
 		&i.WeekStartDay,
 		&i.BillingSyncedAt,
 		&i.NotificationTimeoutSeconds,
+		&i.MonitorsSyncedAt,
 	)
 	return i, err
 }

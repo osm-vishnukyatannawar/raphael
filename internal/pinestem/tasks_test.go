@@ -56,7 +56,7 @@ func TestListProjects(t *testing.T) {
 		_, _ = io.WriteString(w, projectsBody)
 	})
 
-	projects, err := client.ListProjects(t.Context(), "tok-abc", 453)
+	projects, err := client.ListProjects(t.Context(), "tok-abc", 453, pinestem.ActiveProjectStatuses)
 	if err != nil {
 		t.Fatalf("ListProjects: %v", err)
 	}

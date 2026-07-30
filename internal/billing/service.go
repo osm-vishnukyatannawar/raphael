@@ -199,8 +199,9 @@ func requestFor(creds *identity.Credentials, start, end time.Time) pinestem.Bill
 	return pinestem.BillingRequest{
 		Token:     creds.Token,
 		CompanyID: creds.CompanyID,
-		// EmpID is the caller's own per-company UserID today. It is a distinct
-		// field so that reporting on a colleague later needs no new plumbing.
+		CallerID:  creds.UserID,
+		// This view is explicitly the signed-in user's own hours; internal/monitor
+		// leaves EmpID zero to widen the same call to the whole team.
 		EmpID:            creds.UserID,
 		RoleID:           creds.RoleID,
 		IsProjectManager: creds.IsProjectManager,

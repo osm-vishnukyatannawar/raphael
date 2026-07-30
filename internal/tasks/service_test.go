@@ -22,10 +22,14 @@ type stubFetcher struct {
 	gotUserID       int64
 	gotCompanyID    int64
 	gotProjectCodes []string
+	gotStatuses     []int
 	calls           int
 }
 
-func (s *stubFetcher) ListProjects(_ context.Context, _ string, companyID int64) ([]pinestem.Project, error) {
+func (s *stubFetcher) ListProjects(
+	_ context.Context, _ string, companyID int64, statuses []int,
+) ([]pinestem.Project, error) {
+	s.gotStatuses = statuses
 	s.gotCompanyID = companyID
 	if s.err != nil {
 		return nil, s.err

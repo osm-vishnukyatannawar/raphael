@@ -4,7 +4,8 @@ Cross-platform desktop app (Linux + Windows) built with [Wails v2](https://wails
 a Go backend bound to a React + TypeScript frontend running in the OS webview.
 
 It signs in to Pinestem, shows the tasks waiting on your review, alerts you when a
-new one arrives, and tracks the hours you've billed today and this week.
+new one arrives, tracks the hours you've billed today and this week, and monitors
+monthly billing targets for a team across a group of projects.
 
 ## Requirements
 
@@ -64,6 +65,7 @@ internal/identity/       Onboarding state: display name + Pinestem session
 internal/secret/         OS keyring access
 internal/tasks/          In-review queue: cache, new-task detection, alert wording
 internal/billing/        Logged hours: per-day cache, week arithmetic
+internal/monitor/        Billing targets: monthly progress, pace, working days
 internal/settings/       Preferences (intervals, week start, alert toggles)
 internal/poller/         The two refresh loops — see "Refresh loops" below
 internal/notify/         Desktop notifications + raising the window
@@ -132,7 +134,7 @@ exists precisely to reach you when the window *isn't* in front. The backend emit
 
 Tasks and billing have separate intervals (60s and 300s by default) and separate
 on-demand refresh buttons. `0` disables either one; anything under 15s is raised to
-15s.
+15s. The target monitors ride the billing loop and emit `monitors:updated`.
 
 ## Tasks in review
 
@@ -245,6 +247,14 @@ Three things that are easy to get wrong here, all confirmed live:
 project list. `Reports/FilterDailyBillingDetails` appears in the bundle but 404s, and
 `FilterBillingDetails_New` rejects GET.
 
+**`PageLimit` is capped at 100 server-side.** Asking for 50 returns 50, but 100, 200
+and 500 all return exactly 100. `billingPageLimit` must therefore *equal* the cap:
+set it higher and a full 100-row page reads as "shorter than the limit, so this is
+the last one", every later page is dropped, and the total is quietly wrong rather
+than an error. A month across two projects is 434 entries — five pages — so this is
+not a theoretical concern. The regression test models the cap rather than honouring
+whatever the client asks for, which is exactly how it slipped through the first time.
+
 The fetch window is the configured week stretched back to include yesterday — on the
 first day of the week, yesterday is in the *previous* one, and without that the
 "Yesterday" figure would silently read zero. Week start is configurable (default
@@ -277,6 +287,55 @@ failure leaves the previous cache intact rather than blanking the list.
 sqlite3 ~/.config/raphael/raphael.db \
   'SELECT short_code, project_code, modified_on FROM task ORDER BY modified_on DESC;'
 ```
+
+## Targets (monitors)
+
+A *monitor* is a saved group — one or more projects, one or more people, each with a
+monthly target — answering "are we collectively on track for what this client needs
+this month?" rather than just "what have I billed?". It lives on the **Targets** tab.
+
+Targets are per person across the monitor's projects, or split per person per
+project. Both are the same model: `monitor_target.project_id = 0` is a sentinel
+meaning "across every project in this monitor". It is `0` rather than `NULL` so it can
+sit in the primary key — NULLs are distinct from one another in SQLite, which would
+let the same person be inserted twice.
+
+**One API call serves every monitor.** The fetch is over the *union* of all monitored
+projects, with `EmpID` omitted so it covers the whole team, and the rows are sliced
+per monitor in Go using their `EmpID` and `ProjectID`. Adding a monitor therefore
+costs no extra requests; only widening the set of projects does. Two monitors may
+watch the same project, and an entry counts toward both — the attribution is not a
+partition.
+
+**Measured against billable hours**, with non-billable shown alongside but not
+counted. Period is the calendar month. Working days are Mon–Fri, and the catch-up
+figure **excludes today** so it never assumes a shortfall can still be absorbed in
+what is left of the evening. When no working days remain the per-day figure is `0`
+and the UI says so, rather than dividing by zero or implying it is achievable.
+
+Each monitor also reports *expected by now* — the target prorated by elapsed working
+days — and flags on-track or behind against it. A bare "120 of 200h" means nothing on
+the 3rd of the month; the marker on the progress bar is what makes it readable.
+
+The project picker uses statuses 1–5 (80 projects), not the 1–2 the review queue
+filters to (37): a project can still accrue hours after it leaves the active
+statuses. `monitor_project` denormalises the code and name because the `project`
+table is a cache wiped on every task refresh.
+
+Monitors ride the billing poller — same source, same cadence, separate query and
+separate `monitors:updated` event.
+
+```sh
+sqlite3 ~/.config/raphael/raphael.db \
+  'SELECT m.name, t.emp_name, t.project_id, t.target_minutes
+     FROM monitor m JOIN monitor_target t ON t.monitor_id = m.id;'
+```
+
+> Deleting a monitor cascades to its projects, targets and actuals — but only with
+> foreign keys enabled. The app's DSN sets `_pragma=foreign_keys(1)`; the `sqlite3`
+> CLI does **not** enable them by default, so a manual `DELETE FROM monitor` there
+> leaves orphans behind. Use `PRAGMA foreign_keys=ON;` first if you are poking at the
+> database by hand.
 
 ## Icon
 

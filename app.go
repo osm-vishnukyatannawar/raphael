@@ -15,6 +15,7 @@ import (
 	"github.com/osm-vishnukyatannawar/raphael/internal/billing"
 	"github.com/osm-vishnukyatannawar/raphael/internal/db"
 	"github.com/osm-vishnukyatannawar/raphael/internal/identity"
+	"github.com/osm-vishnukyatannawar/raphael/internal/monitor"
 	"github.com/osm-vishnukyatannawar/raphael/internal/notify"
 	"github.com/osm-vishnukyatannawar/raphael/internal/pinestem"
 	"github.com/osm-vishnukyatannawar/raphael/internal/poller"
@@ -30,8 +31,9 @@ const taskURLTemplate = "https://pinestem.com/dashboard.html#/tasks/%s/details/?
 // Events the backend emits. The frontend subscribes rather than polling, since
 // the refresh loops live in Go — see internal/poller for why.
 const (
-	eventTasksUpdated   = "tasks:updated"
-	eventBillingUpdated = "billing:updated"
+	eventTasksUpdated    = "tasks:updated"
+	eventBillingUpdated  = "billing:updated"
+	eventMonitorsUpdated = "monitors:updated"
 )
 
 // notificationID is reused for every new-task alert so the OS replaces the
@@ -47,10 +49,12 @@ type App struct {
 	ctx      context.Context
 	version  string
 	database *sql.DB
+	client   *pinestem.Client
 	identity *identity.Service
 	tasks    *tasks.Service
 	billing  *billing.Service
 	settings *settings.Service
+	monitors *monitor.Service
 	notifier notify.Notifier
 	// notifications is the concrete service, kept for its shutdown hook.
 	notifications *notify.Service
@@ -129,10 +133,12 @@ func (a *App) startup(ctx context.Context) {
 	}
 
 	client := pinestem.New()
+	a.client = client
 	a.identity = identity.New(database, client, store, keyringOK)
 	a.settings = settings.New(database)
 	a.tasks = tasks.New(database, client, a.identity, a.settings)
 	a.billing = billing.New(database, client, a.identity, a.settings)
+	a.monitors = monitor.New(database, client, a.identity)
 
 	a.startPollers(ctx)
 }
@@ -340,6 +346,111 @@ func (a *App) GetBillingForDate(day string) (*billing.DayTotal, error) {
 	return a.billing.ForDate(a.ctx, day)
 }
 
+// MonitorsResult is the monitors equivalent of TasksResult.
+type MonitorsResult struct {
+	Monitors      []monitor.Progress `json:"monitors"`
+	SyncedAt      string             `json:"syncedAt"`
+	ErrorMessage  string             `json:"errorMessage"`
+	FromCacheOnly bool               `json:"fromCacheOnly"`
+}
+
+// ListMonitors returns cached monitor progress without hitting the network.
+func (a *App) ListMonitors() MonitorsResult {
+	if a.monitors == nil {
+		return MonitorsResult{Monitors: []monitor.Progress{}, ErrorMessage: "Raphael is not ready yet."}
+	}
+
+	list, err := a.monitors.Cached(a.ctx)
+	if err != nil {
+		log.Printf("list monitors: %v", err)
+
+		return MonitorsResult{Monitors: []monitor.Progress{}, ErrorMessage: err.Error()}
+	}
+
+	return MonitorsResult{Monitors: list, SyncedAt: a.stamp(func(s *settings.Settings) string {
+		return s.MonitorsSyncedAt
+	})}
+}
+
+// RefreshMonitors pulls live figures for every monitor on demand.
+func (a *App) RefreshMonitors() MonitorsResult {
+	if a.monitors == nil {
+		return MonitorsResult{Monitors: []monitor.Progress{}, ErrorMessage: "Raphael is not ready yet."}
+	}
+
+	return a.refreshMonitors(a.ctx)
+}
+
+// GetMonitor returns one monitor's configuration, for editing.
+func (a *App) GetMonitor(id int64) (*monitor.Monitor, error) {
+	if a.monitors == nil {
+		return nil, errors.New("raphael is not ready yet")
+	}
+
+	return a.monitors.Get(a.ctx, id)
+}
+
+// SaveMonitor creates or updates a monitor, then refreshes so the new
+// configuration is reflected immediately rather than at the next tick.
+func (a *App) SaveMonitor(in monitor.Monitor) (*monitor.Monitor, error) {
+	if a.monitors == nil {
+		return nil, errors.New("raphael is not ready yet")
+	}
+
+	saved, err := a.monitors.Save(a.ctx, in)
+	if err != nil {
+		return nil, err
+	}
+
+	a.billingPoller.Trigger()
+
+	return saved, nil
+}
+
+// DeleteMonitor removes a monitor and everything hanging off it.
+func (a *App) DeleteMonitor(id int64) error {
+	if a.monitors == nil {
+		return errors.New("raphael is not ready yet")
+	}
+
+	return a.monitors.Delete(a.ctx, id)
+}
+
+// ListSelectableProjects is the project list for the monitor editor.
+//
+// Wider than the task list's: a project can still accrue hours after it leaves
+// the active statuses, so targets need statuses 1-5 (80 projects) rather than
+// the 1-2 (37) the review queue filters to.
+func (a *App) ListSelectableProjects() ([]pinestem.Project, error) {
+	if a.identity == nil {
+		return nil, errors.New("raphael is not ready yet")
+	}
+
+	creds, err := a.identity.Credentials(a.ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return a.client.ListProjects(
+		a.ctx, creds.Token, creds.CompanyID, pinestem.AllProjectStatuses,
+	)
+}
+
+// ListProjectMembers returns the members across the given project codes, for the
+// monitor editor's people picker.
+func (a *App) ListProjectMembers(projectCodes []string) ([]pinestem.Member, error) {
+	if a.identity == nil {
+		return nil, errors.New("raphael is not ready yet")
+	}
+
+	creds, err := a.identity.Credentials(a.ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return a.client.ListProjectMembers(a.ctx, creds.Token, creds.CompanyID, projectCodes)
+}
+
 // GetSettings returns the stored preferences.
 func (a *App) GetSettings() (*settings.Settings, error) {
 	if a.settings == nil {
@@ -414,9 +525,12 @@ func (a *App) syncTasks(ctx context.Context) {
 	wailsruntime.EventsEmit(ctx, eventTasksUpdated, result)
 }
 
+// syncBilling refreshes the personal figures and the monitors together. They
+// come from the same endpoint and change at the same rate, so they share a
+// cadence — but they are separate queries, so they emit separate events.
 func (a *App) syncBilling(ctx context.Context) {
-	result := a.refreshBilling(ctx)
-	wailsruntime.EventsEmit(ctx, eventBillingUpdated, result)
+	wailsruntime.EventsEmit(ctx, eventBillingUpdated, a.refreshBilling(ctx))
+	wailsruntime.EventsEmit(ctx, eventMonitorsUpdated, a.refreshMonitors(ctx))
 }
 
 // refreshTasks does the work behind both the poller and the manual button.
@@ -480,6 +594,34 @@ func (a *App) refreshBilling(ctx context.Context) BillingResult {
 	}
 
 	return BillingResult{Summary: summary, SyncedAt: syncedAt()}
+}
+
+func (a *App) refreshMonitors(ctx context.Context) MonitorsResult {
+	syncedAt := func() string {
+		return a.stamp(func(s *settings.Settings) string { return s.MonitorsSyncedAt })
+	}
+
+	list, err := a.monitors.Refresh(ctx)
+	if err != nil {
+		if errors.Is(err, identity.ErrNotOnboarded) {
+			return MonitorsResult{Monitors: []monitor.Progress{}}
+		}
+		log.Printf("refresh monitors: %v", err)
+
+		cached, cacheErr := a.monitors.Cached(ctx)
+		if cacheErr != nil {
+			cached = []monitor.Progress{}
+		}
+
+		return MonitorsResult{
+			Monitors:      cached,
+			SyncedAt:      syncedAt(),
+			ErrorMessage:  err.Error(),
+			FromCacheOnly: true,
+		}
+	}
+
+	return MonitorsResult{Monitors: list, SyncedAt: syncedAt()}
 }
 
 // alert notifies and raises the window for newly arrived tasks, each gated on

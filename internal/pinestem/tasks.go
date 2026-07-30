@@ -76,15 +76,25 @@ type wireTask struct {
 	CompetencyName string `json:"CompetencyName"`
 }
 
-// ListProjects returns the projects the user can read.
-//
-// The filter mirrors the Pinestem web UI: active customers, project statuses 1
-// and 2, read access. Project codes from here feed ListReviewTasks.
-func (c *Client) ListProjects(ctx context.Context, token string, companyID int64) ([]Project, error) {
+// ActiveProjectStatuses is the narrow filter the task queue uses: the statuses
+// the Pinestem task UI itself sends. 37 projects for company 453.
+var ActiveProjectStatuses = []int{1, 2}
+
+// AllProjectStatuses is what the billing report UI sends, and what the target
+// monitors need — a project can still accrue hours after it leaves the active
+// statuses. 80 projects for company 453, against the 37 above.
+var AllProjectStatuses = []int{1, 2, 3, 4, 5}
+
+// ListProjects returns the projects the user can read, filtered to the given
+// project statuses. Project codes from here feed ListReviewTasks.
+func (c *Client) ListProjects(
+	ctx context.Context, token string, companyID int64, statuses []int,
+) ([]Project, error) {
 	q := url.Values{}
 	q.Set("ActiveCustomer", "1")
-	q.Add("ProjectStatusID", "1")
-	q.Add("ProjectStatusID", "2")
+	for _, s := range statuses {
+		q.Add("ProjectStatusID", strconv.Itoa(s))
+	}
 	q.Set("Read", "1")
 	q.Set("Write", "0")
 

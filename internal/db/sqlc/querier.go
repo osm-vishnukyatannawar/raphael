@@ -12,19 +12,32 @@ type Querier interface {
 	AcknowledgeAllTasks(ctx context.Context) error
 	AcknowledgeTask(ctx context.Context, taskID int64) error
 	DeleteAllBillingDays(ctx context.Context) error
+	DeleteAllMonitorActuals(ctx context.Context) error
 	DeleteAllProjects(ctx context.Context) error
 	DeleteAllSeenTasks(ctx context.Context) error
 	DeleteAllTasks(ctx context.Context) error
+	DeleteMonitor(ctx context.Context, id int64) error
+	DeleteMonitorProjects(ctx context.Context, monitorID int64) error
+	DeleteMonitorTargets(ctx context.Context, monitorID int64) error
 	DeletePinestemAccount(ctx context.Context) error
 	DeleteProfile(ctx context.Context) error
+	GetMonitor(ctx context.Context, id int64) (Monitor, error)
 	GetPinestemAccount(ctx context.Context) (PinestemAccount, error)
 	GetProfile(ctx context.Context) (AppProfile, error)
 	GetSettings(ctx context.Context) (AppSetting, error)
 	InsertBillingDay(ctx context.Context, arg InsertBillingDayParams) error
+	InsertMonitor(ctx context.Context, arg InsertMonitorParams) (int64, error)
+	InsertMonitorActual(ctx context.Context, arg InsertMonitorActualParams) error
+	InsertMonitorProject(ctx context.Context, arg InsertMonitorProjectParams) error
+	InsertMonitorTarget(ctx context.Context, arg InsertMonitorTargetParams) error
 	InsertProject(ctx context.Context, arg InsertProjectParams) error
 	InsertSeenTask(ctx context.Context, arg InsertSeenTaskParams) error
 	InsertTask(ctx context.Context, arg InsertTaskParams) error
 	ListBillingDays(ctx context.Context) ([]BillingDay, error)
+	ListMonitorActuals(ctx context.Context) ([]MonitorActual, error)
+	ListMonitorProjects(ctx context.Context) ([]MonitorProject, error)
+	ListMonitorTargets(ctx context.Context) ([]MonitorTarget, error)
+	ListMonitors(ctx context.Context) ([]Monitor, error)
 	ListProjects(ctx context.Context) ([]Project, error)
 	ListSeenTasks(ctx context.Context) ([]SeenTask, error)
 	// COALESCE defaults to 1 ("already seen"): a task row without a seen_task row
@@ -34,7 +47,9 @@ type Querier interface {
 	// settings save never rewinds them.
 	SaveSettings(ctx context.Context, arg SaveSettingsParams) error
 	SetBillingSyncedAt(ctx context.Context, billingSyncedAt *string) error
+	SetMonitorsSyncedAt(ctx context.Context, monitorsSyncedAt *string) error
 	SetTasksSyncedAt(ctx context.Context, tasksSyncedAt *string) error
+	UpdateMonitor(ctx context.Context, arg UpdateMonitorParams) error
 	UpsertPinestemAccount(ctx context.Context, arg UpsertPinestemAccountParams) error
 	UpsertProfile(ctx context.Context, arg UpsertProfileParams) error
 }
