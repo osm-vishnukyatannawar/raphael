@@ -20,6 +20,7 @@ type AppSetting struct {
 	BillingRefreshIntervalSeconds int64   `json:"billing_refresh_interval_seconds"`
 	WeekStartDay                  int64   `json:"week_start_day"`
 	BillingSyncedAt               *string `json:"billing_synced_at"`
+	NotificationTimeoutSeconds    int64   `json:"notification_timeout_seconds"`
 }
 
 type BillingDay struct {

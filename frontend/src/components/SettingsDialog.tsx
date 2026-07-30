@@ -87,12 +87,15 @@ function SettingsForm({
   const [weekStart, setWeekStart] = useState(String(current.weekStartDay))
   const [notify, setNotify] = useState(current.notifyNewTasks)
   const [focus, setFocus] = useState(current.focusOnNewTask)
+  const [notifySeconds, setNotifySeconds] = useState(
+    String(current.notificationTimeoutSeconds)
+  )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const tasksValid = isInterval(tasksInterval)
   const billingValid = isInterval(billingInterval)
-  const valid = tasksValid && billingValid
+  const valid = tasksValid && billingValid && isInterval(notifySeconds)
 
   async function save(event: React.FormEvent) {
     event.preventDefault()
@@ -111,6 +114,7 @@ function SettingsForm({
           weekStartDay: Number(weekStart),
           notifyNewTasks: notify,
           focusOnNewTask: focus,
+          notificationTimeoutSeconds: Number(notifySeconds),
         })
       )
       onSaved(saved)
@@ -165,10 +169,27 @@ function SettingsForm({
         <ToggleField
           id="focus"
           label="Bring Raphael to the front"
-          hint="Raises the window so the new task is visible straight away."
+          hint="Maximises and raises the window so the new task is visible straight away."
           checked={focus}
           onCheckedChange={setFocus}
         />
+
+        {notify && (
+          <>
+            <IntervalField
+              id="notify-seconds"
+              label="Notification stays for"
+              value={notifySeconds}
+              onChange={setNotifySeconds}
+            />
+            <p className="text-muted-foreground text-xs">
+              Seconds.{' '}
+              <strong>0 keeps it on screen until you dismiss it</strong> —
+              unlike the refresh fields above, 0 does not mean off. Windows uses
+              its own system toast duration and ignores this.
+            </p>
+          </>
+        )}
       </fieldset>
 
       <div className="space-y-2">

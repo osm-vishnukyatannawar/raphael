@@ -29,6 +29,18 @@ const (
 
 	// DefaultWeekStartDay is Monday (ISO-8601).
 	DefaultWeekStartDay = int64(time.Monday)
+
+	// DefaultNotificationSeconds is how long a new-task notification stays up.
+	DefaultNotificationSeconds = 10
+
+	// NotificationUntilDismissed keeps a notification on screen indefinitely.
+	// It is 0 because that is what the freedesktop Notify expire_timeout
+	// argument uses, and this value is passed straight through to it.
+	NotificationUntilDismissed = 0
+
+	// MaxNotificationSeconds is an upper bound so a typo can't wedge a
+	// notification on screen for a day. Use 0 for "until dismissed" instead.
+	MaxNotificationSeconds = 3600
 )
 
 // Settings is the app's preferences, as handed to the frontend.
@@ -36,11 +48,24 @@ type Settings struct {
 	RefreshIntervalSeconds        int64 `json:"refreshIntervalSeconds"`
 	BillingRefreshIntervalSeconds int64 `json:"billingRefreshIntervalSeconds"`
 	// WeekStartDay is 0=Sunday … 6=Saturday, matching Go's time.Weekday.
-	WeekStartDay    int64  `json:"weekStartDay"`
-	NotifyNewTasks  bool   `json:"notifyNewTasks"`
-	FocusOnNewTask  bool   `json:"focusOnNewTask"`
-	TasksSyncedAt   string `json:"tasksSyncedAt"`
-	BillingSyncedAt string `json:"billingSyncedAt"`
+	WeekStartDay   int64 `json:"weekStartDay"`
+	NotifyNewTasks bool  `json:"notifyNewTasks"`
+	FocusOnNewTask bool  `json:"focusOnNewTask"`
+	// NotificationTimeoutSeconds is 0 for "until dismissed". Unlike the refresh
+	// intervals, 0 here does not mean "off".
+	NotificationTimeoutSeconds int64  `json:"notificationTimeoutSeconds"`
+	TasksSyncedAt              string `json:"tasksSyncedAt"`
+	BillingSyncedAt            string `json:"billingSyncedAt"`
+}
+
+// NotificationTimeout is the configured duration, and whether it should stay up
+// until the user dismisses it.
+func (s Settings) NotificationTimeout() (d time.Duration, untilDismissed bool) {
+	if s.NotificationTimeoutSeconds == NotificationUntilDismissed {
+		return 0, true
+	}
+
+	return time.Duration(s.NotificationTimeoutSeconds) * time.Second, false
 }
 
 // Defaults is what a fresh install starts with.
@@ -51,6 +76,7 @@ func Defaults() Settings {
 		WeekStartDay:                  DefaultWeekStartDay,
 		NotifyNewTasks:                true,
 		FocusOnNewTask:                true,
+		NotificationTimeoutSeconds:    DefaultNotificationSeconds,
 	}
 }
 
@@ -80,6 +106,7 @@ func (s *Service) Get(ctx context.Context) (*Settings, error) {
 		WeekStartDay:                  row.WeekStartDay,
 		NotifyNewTasks:                row.NotifyNewTasks == 1,
 		FocusOnNewTask:                row.FocusOnNewTask == 1,
+		NotificationTimeoutSeconds:    row.NotificationTimeoutSeconds,
 	}
 	if row.TasksSyncedAt != nil {
 		out.TasksSyncedAt = *row.TasksSyncedAt
@@ -106,6 +133,7 @@ func (s *Service) Save(ctx context.Context, in Settings) (*Settings, error) {
 		WeekStartDay:                  ClampWeekStartDay(in.WeekStartDay),
 		NotifyNewTasks:                boolToInt(in.NotifyNewTasks),
 		FocusOnNewTask:                boolToInt(in.FocusOnNewTask),
+		NotificationTimeoutSeconds:    ClampNotificationTimeout(in.NotificationTimeoutSeconds),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("settings: save: %w", err)
@@ -155,6 +183,22 @@ func ClampWeekStartDay(day int64) int64 {
 	}
 
 	return day
+}
+
+// ClampNotificationTimeout keeps the timeout sane. A negative value is a typo
+// rather than an intent, so it falls back to the default; 0 is left alone
+// because it is the deliberate "until dismissed" setting.
+func ClampNotificationTimeout(seconds int64) int64 {
+	switch {
+	case seconds == NotificationUntilDismissed:
+		return NotificationUntilDismissed
+	case seconds < 0:
+		return DefaultNotificationSeconds
+	case seconds > MaxNotificationSeconds:
+		return MaxNotificationSeconds
+	default:
+		return seconds
+	}
 }
 
 func boolToInt(b bool) int64 {

@@ -49,14 +49,16 @@ SELECT * FROM app_settings WHERE id = 1;
 -- settings save never rewinds them.
 INSERT INTO app_settings (
     id, refresh_interval_seconds, billing_refresh_interval_seconds,
-    week_start_day, notify_new_tasks, focus_on_new_task
-) VALUES (1, ?, ?, ?, ?, ?)
+    week_start_day, notify_new_tasks, focus_on_new_task,
+    notification_timeout_seconds
+) VALUES (1, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
     refresh_interval_seconds         = excluded.refresh_interval_seconds,
     billing_refresh_interval_seconds = excluded.billing_refresh_interval_seconds,
     week_start_day                   = excluded.week_start_day,
     notify_new_tasks                 = excluded.notify_new_tasks,
-    focus_on_new_task                = excluded.focus_on_new_task;
+    focus_on_new_task                = excluded.focus_on_new_task,
+    notification_timeout_seconds     = excluded.notification_timeout_seconds;
 
 -- name: SetTasksSyncedAt :exec
 INSERT INTO app_settings (id, tasks_synced_at)

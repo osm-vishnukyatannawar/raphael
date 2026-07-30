@@ -52,6 +52,8 @@ type App struct {
 	billing  *billing.Service
 	settings *settings.Service
 	notifier notify.Notifier
+	// notifications is the concrete service, kept for its shutdown hook.
+	notifications *notify.Service
 
 	tasksPoller   *poller.Poller
 	billingPoller *poller.Poller
@@ -97,13 +99,18 @@ func NewApp(version string) *App {
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 
-	notifier := notify.Wails{}
-	if err := notifier.Initialize(ctx); err != nil {
+	notifier, err := notify.New()
+	if err != nil {
 		// Not fatal: a desktop without a notification daemon should still get a
 		// working task list, just a quieter one.
 		log.Printf("startup: notifications unavailable: %v", err)
 	}
+	// Clicking a notification raises the window. On Wayland this is the one
+	// moment the compositor reliably allows it, because the click is a user
+	// interaction — see notify.Service.Raise.
+	notifier.OnActivate(func() { notifier.Raise(ctx) })
 	a.notifier = notifier
+	a.notifications = notifier
 
 	database, err := db.Open(ctx)
 	if err != nil {
@@ -159,7 +166,9 @@ func (a *App) shutdown(ctx context.Context) {
 		a.billingPoller.Stop()
 	}
 
-	notify.Wails{}.Cleanup(ctx) //nolint:revive // the zero value is the receiver
+	if a.notifications != nil {
+		a.notifications.Close(ctx)
+	}
 
 	if a.database != nil {
 		if err := a.database.Close(); err != nil {
@@ -489,10 +498,13 @@ func (a *App) alert(ctx context.Context, arrived []tasks.Task) {
 
 	if current.NotifyNewTasks {
 		headline, body := tasks.AlertText(arrived)
+		timeout, _ := current.NotificationTimeout()
+
 		err := a.notifier.Notify(ctx, notify.Notification{
-			ID:    notificationID,
-			Title: "Raphael",
-			Body:  headline + "\n" + body,
+			ID:      notificationID,
+			Title:   "Raphael",
+			Body:    headline + "\n" + body,
+			Timeout: timeout,
 		})
 		if err != nil {
 			log.Printf("alert: %v", err)

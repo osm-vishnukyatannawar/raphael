@@ -152,13 +152,56 @@ A task that wasn't in the queue on the previous refresh triggers a desktop
 notification and pulls the window forward, each toggleable in settings. The row stays
 highlighted until you open it or press "Mark all seen".
 
-Notifications use the **Wails v2.13 runtime** (`runtime.SendNotification`) — D-Bus on
-Linux, toast on Windows. No third-party notification dependency.
+#### Notifications talk to D-Bus directly on Linux
 
-Raising the window sets always-on-top for ~120ms and then clears it. That looks odd
-but is deliberate: a plain `WindowShow` is downgraded to a taskbar flash by most
-window managers' focus-stealing prevention. KDE on Wayland may refuse anyway — the
-compositor has the final say, same as with the window icon.
+**Wails' `runtime.SendNotification` hardcodes the `Notify` `expire_timeout` argument
+to `-1`** ("server default"), so notification duration was not configurable through
+it — the value was never ours to set. `internal/notify/dbus_linux.go` therefore calls
+the daemon itself via godbus (already in the dependency graph through Wails and
+go-keyring, so no new module). That also buys the `desktop-entry` hint and
+`replaces_id`, so repeat alerts update in place instead of stacking.
+
+Duration is a setting: seconds, or **`0` for "until dismissed"**. Note `0` means the
+opposite of what it means for the refresh intervals in the same dialog — it is
+freedesktop's own convention for `expire_timeout`, passed straight through. Verified
+against Plasma 6.7.3: `5000` closes with reason 1 (expired), `0` never closes on its
+own.
+
+Windows keeps the Wails path (`wails_other.go`) and ignores the duration — the toast
+API only offers "short"/"long" presets, not a duration.
+
+#### Getting the window to actually come forward
+
+`Raise` maximises and presents the window. The call order is load-bearing:
+`WindowShow` is `gtk_widget_show`, which only *maps* the window and neither raises nor
+focuses it. The one that does both is `WindowUnminimise` — `gtk_window_present`
+underneath — so it must come last, after the window is mapped and maximised.
+
+`WindowSetAlwaysOnTop` is `gtk_window_set_keep_above`, an X11 window-manager hint that
+**Wayland ignores outright**. The brief pulse helps on X11 and XWayland and does
+nothing on a native Wayland session.
+
+**On Wayland, an app cannot focus itself on demand.** Activation needs an
+xdg-activation token, which is only issued off the back of user interaction, and a
+background alert has none — the compositor decides, not the app. Maximise and raise
+still work; KDE typically marks the window as demanding attention rather than
+stealing focus. Two reliable routes:
+
+1. **Click the notification.** That *is* user interaction, so it activates the window.
+   Requires the desktop entry (below) so KDE can connect the notification to the app.
+2. **A KWin rule**, for unconditional auto-raise: System Settings → Window Management
+   → Window Rules → New, match *Window class* `Raphael`, then set **Focus stealing
+   prevention: None** and **Focus protection: None**.
+
+### Install the desktop entry (Linux)
+
+```sh
+make install-desktop   # binary → ~/.local/bin, icon + Raphael.desktop
+```
+
+The filename `Raphael.desktop` must match the GTK program name set in `main.go`, which
+becomes the Wayland `app_id`. Without it KDE shows a generic window icon and cannot
+activate the window from a notification — the same root cause behind both symptoms.
 
 "Which tasks are new" is `task` minus `seen_task`, so it survives restarts.
 `seen_task` is rebuilt on every refresh alongside the task cache, which means a task

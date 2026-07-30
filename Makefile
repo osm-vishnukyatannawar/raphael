@@ -11,7 +11,7 @@ ifeq ($(UNAME_S),Linux)
 endif
 
 .DEFAULT_GOAL := help
-.PHONY: help setup tools dev build lint lint-go lint-frontend fmt test typecheck generate icon clean
+.PHONY: help setup tools dev build lint lint-go lint-frontend fmt test typecheck generate icon install-desktop clean
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -55,6 +55,19 @@ generate: ## Regenerate sqlc queries and Wails TypeScript bindings
 icon: ## Rasterize build/appicon.svg into the PNG and Windows .ico
 	rsvg-convert -w 1024 -h 1024 build/appicon.svg -o build/appicon.png
 	magick build/appicon.png -define icon:auto-resize=256,128,64,48,32,16 build/windows/icon.ico
+
+install-desktop: build ## Install the binary, icon and desktop entry (Linux)
+	@# Without an installed desktop entry whose basename matches the Wayland
+	@# app_id, KDE shows a generic window icon and cannot activate the window
+	@# from a notification. Installing it fixes both.
+	install -Dm755 build/bin/raphael $(HOME)/.local/bin/raphael
+	install -Dm644 build/appicon.png \
+		$(HOME)/.local/share/icons/hicolor/512x512/apps/raphael.png
+	install -Dm644 build/linux/Raphael.desktop \
+		$(HOME)/.local/share/applications/Raphael.desktop
+	-update-desktop-database $(HOME)/.local/share/applications 2>/dev/null
+	-gtk-update-icon-cache -f -t $(HOME)/.local/share/icons/hicolor 2>/dev/null
+	@echo "Installed. Ensure ~/.local/bin is on PATH."
 
 clean: ## Remove build output
 	rm -rf build/bin frontend/dist/* frontend/node_modules/.tmp

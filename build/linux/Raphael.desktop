@@ -1,0 +1,17 @@
+[Desktop Entry]
+Type=Application
+Name=Raphael
+GenericName=Pinestem assistant
+Comment=Review queue and billing hours from Pinestem
+# Resolved from PATH; `make install-desktop` puts the binary in ~/.local/bin.
+Exec=raphael
+Icon=raphael
+Terminal=false
+Categories=Utility;Development;
+Keywords=pinestem;tasks;review;billing;
+# Must match the GTK program name set in main.go, which becomes the Wayland
+# app_id and the X11 WM_CLASS. If these drift apart the desktop environment
+# stops associating the window with this entry — that is what makes the icon
+# fall back to a generic placeholder and stops notifications from being able to
+# activate the window.
+StartupWMClass=Raphael

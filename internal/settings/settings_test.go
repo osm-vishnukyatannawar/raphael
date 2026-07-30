@@ -190,3 +190,54 @@ func TestSaveDoesNotClearSyncStamps(t *testing.T) {
 		t.Errorf("sync stamps cleared by a settings save: %+v", got)
 	}
 }
+
+// 0 is "until dismissed" here, not "off" — the opposite of what 0 means for the
+// refresh intervals in the same struct. Worth pinning so a future tidy-up that
+// unifies the clamps doesn't silently disable sticky notifications.
+func TestNotificationTimeoutClamping(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		in   int64
+		want int64
+	}{
+		{"zero stays zero (until dismissed)", 0, settings.NotificationUntilDismissed},
+		{"negative falls back to the default", -5, settings.DefaultNotificationSeconds},
+		{"normal value is kept", 30, 30},
+		{"one second is allowed", 1, 1},
+		{"absurd value is capped", 99999, settings.MaxNotificationSeconds},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			svc := newService(t)
+
+			stored, err := svc.Save(t.Context(), settings.Settings{
+				NotificationTimeoutSeconds: tc.in,
+			})
+			if err != nil {
+				t.Fatalf("Save: %v", err)
+			}
+			if stored.NotificationTimeoutSeconds != tc.want {
+				t.Errorf("stored %d, want %d", stored.NotificationTimeoutSeconds, tc.want)
+			}
+		})
+	}
+}
+
+func TestNotificationTimeoutAccessor(t *testing.T) {
+	t.Parallel()
+
+	d, sticky := settings.Settings{NotificationTimeoutSeconds: 0}.NotificationTimeout()
+	if !sticky || d != 0 {
+		t.Errorf("0 gave %v/%v, want 0/true", d, sticky)
+	}
+
+	d, sticky = settings.Settings{NotificationTimeoutSeconds: 12}.NotificationTimeout()
+	if sticky || d != 12*time.Second {
+		t.Errorf("12 gave %v/%v, want 12s/false", d, sticky)
+	}
+}

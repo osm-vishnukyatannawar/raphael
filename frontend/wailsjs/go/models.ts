@@ -269,6 +269,7 @@ export namespace settings {
 	    weekStartDay: number;
 	    notifyNewTasks: boolean;
 	    focusOnNewTask: boolean;
+	    notificationTimeoutSeconds: number;
 	    tasksSyncedAt: string;
 	    billingSyncedAt: string;
 	
@@ -283,6 +284,7 @@ export namespace settings {
 	        this.weekStartDay = source["weekStartDay"];
 	        this.notifyNewTasks = source["notifyNewTasks"];
 	        this.focusOnNewTask = source["focusOnNewTask"];
+	        this.notificationTimeoutSeconds = source["notificationTimeoutSeconds"];
 	        this.tasksSyncedAt = source["tasksSyncedAt"];
 	        this.billingSyncedAt = source["billingSyncedAt"];
 	    }
