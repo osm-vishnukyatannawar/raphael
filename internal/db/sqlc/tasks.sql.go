@@ -64,7 +64,7 @@ func (q *Queries) DeleteAllTasks(ctx context.Context) error {
 }
 
 const getSettings = `-- name: GetSettings :one
-SELECT id, refresh_interval_seconds, tasks_synced_at, notify_new_tasks, focus_on_new_task, billing_refresh_interval_seconds, week_start_day, billing_synced_at, notification_timeout_seconds, monitors_synced_at FROM app_settings WHERE id = 1
+SELECT id, refresh_interval_seconds, tasks_synced_at, notify_new_tasks, focus_on_new_task, billing_refresh_interval_seconds, week_start_day, billing_synced_at, notification_timeout_seconds, monitors_synced_at, my_tasks_refresh_interval_seconds, notify_new_my_tasks, my_tasks_synced_at FROM app_settings WHERE id = 1
 `
 
 func (q *Queries) GetSettings(ctx context.Context) (AppSetting, error) {
@@ -81,6 +81,9 @@ func (q *Queries) GetSettings(ctx context.Context) (AppSetting, error) {
 		&i.BillingSyncedAt,
 		&i.NotificationTimeoutSeconds,
 		&i.MonitorsSyncedAt,
+		&i.MyTasksRefreshIntervalSeconds,
+		&i.NotifyNewMyTasks,
+		&i.MyTasksSyncedAt,
 	)
 	return i, err
 }
@@ -334,24 +337,29 @@ func (q *Queries) ListTasks(ctx context.Context) ([]ListTasksRow, error) {
 const saveSettings = `-- name: SaveSettings :exec
 INSERT INTO app_settings (
     id, refresh_interval_seconds, billing_refresh_interval_seconds,
-    week_start_day, notify_new_tasks, focus_on_new_task,
+    my_tasks_refresh_interval_seconds, week_start_day,
+    notify_new_tasks, focus_on_new_task, notify_new_my_tasks,
     notification_timeout_seconds
-) VALUES (1, ?, ?, ?, ?, ?, ?)
+) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
-    refresh_interval_seconds         = excluded.refresh_interval_seconds,
-    billing_refresh_interval_seconds = excluded.billing_refresh_interval_seconds,
-    week_start_day                   = excluded.week_start_day,
-    notify_new_tasks                 = excluded.notify_new_tasks,
-    focus_on_new_task                = excluded.focus_on_new_task,
-    notification_timeout_seconds     = excluded.notification_timeout_seconds
+    refresh_interval_seconds          = excluded.refresh_interval_seconds,
+    billing_refresh_interval_seconds  = excluded.billing_refresh_interval_seconds,
+    my_tasks_refresh_interval_seconds = excluded.my_tasks_refresh_interval_seconds,
+    week_start_day                    = excluded.week_start_day,
+    notify_new_tasks                  = excluded.notify_new_tasks,
+    focus_on_new_task                 = excluded.focus_on_new_task,
+    notify_new_my_tasks               = excluded.notify_new_my_tasks,
+    notification_timeout_seconds      = excluded.notification_timeout_seconds
 `
 
 type SaveSettingsParams struct {
 	RefreshIntervalSeconds        int64 `json:"refresh_interval_seconds"`
 	BillingRefreshIntervalSeconds int64 `json:"billing_refresh_interval_seconds"`
+	MyTasksRefreshIntervalSeconds int64 `json:"my_tasks_refresh_interval_seconds"`
 	WeekStartDay                  int64 `json:"week_start_day"`
 	NotifyNewTasks                int64 `json:"notify_new_tasks"`
 	FocusOnNewTask                int64 `json:"focus_on_new_task"`
+	NotifyNewMyTasks              int64 `json:"notify_new_my_tasks"`
 	NotificationTimeoutSeconds    int64 `json:"notification_timeout_seconds"`
 }
 
@@ -361,9 +369,11 @@ func (q *Queries) SaveSettings(ctx context.Context, arg SaveSettingsParams) erro
 	_, err := q.db.ExecContext(ctx, saveSettings,
 		arg.RefreshIntervalSeconds,
 		arg.BillingRefreshIntervalSeconds,
+		arg.MyTasksRefreshIntervalSeconds,
 		arg.WeekStartDay,
 		arg.NotifyNewTasks,
 		arg.FocusOnNewTask,
+		arg.NotifyNewMyTasks,
 		arg.NotificationTimeoutSeconds,
 	)
 	return err

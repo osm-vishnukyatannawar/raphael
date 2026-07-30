@@ -2,7 +2,9 @@ package main
 
 import (
 	"embed"
+	"fmt"
 	"log"
+	"os"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -23,12 +25,27 @@ var appIcon []byte
 var version = "dev"
 
 func main() {
+	// Answered before any window is opened, so the installer can ask an
+	// already-installed binary what it is without starting a desktop session.
+	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-version") {
+		fmt.Println(version)
+
+		return
+	}
+
 	app := NewApp(version)
 
 	err := wails.Run(&options.App{
-		Title:  "Raphael",
-		Width:  1280,
-		Height: 800,
+		Title: "Raphael",
+		// The dashboard puts both task lists side by side, which needs the width.
+		// WindowStartState is what actually decides the launch size on a 1920
+		// display; Width/Height are the size restoring from maximised gives, and
+		// the fallback where the compositor ignores the start state.
+		Width:            1600,
+		Height:           1000,
+		MinWidth:         900,
+		MinHeight:        600,
+		WindowStartState: options.Maximised,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},

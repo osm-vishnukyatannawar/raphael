@@ -84,18 +84,24 @@ function SettingsForm({
   const [billingInterval, setBillingInterval] = useState(
     String(current.billingRefreshIntervalSeconds)
   )
+  const [myTasksInterval, setMyTasksInterval] = useState(
+    String(current.myTasksRefreshIntervalSeconds)
+  )
   const [weekStart, setWeekStart] = useState(String(current.weekStartDay))
   const [notify, setNotify] = useState(current.notifyNewTasks)
   const [focus, setFocus] = useState(current.focusOnNewTask)
+  const [notifyMine, setNotifyMine] = useState(current.notifyNewMyTasks)
   const [notifySeconds, setNotifySeconds] = useState(
     String(current.notificationTimeoutSeconds)
   )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const tasksValid = isInterval(tasksInterval)
-  const billingValid = isInterval(billingInterval)
-  const valid = tasksValid && billingValid && isInterval(notifySeconds)
+  const valid =
+    isInterval(tasksInterval) &&
+    isInterval(billingInterval) &&
+    isInterval(myTasksInterval) &&
+    isInterval(notifySeconds)
 
   async function save(event: React.FormEvent) {
     event.preventDefault()
@@ -111,9 +117,11 @@ function SettingsForm({
           ...current,
           refreshIntervalSeconds: Number(tasksInterval),
           billingRefreshIntervalSeconds: Number(billingInterval),
+          myTasksRefreshIntervalSeconds: Number(myTasksInterval),
           weekStartDay: Number(weekStart),
           notifyNewTasks: notify,
           focusOnNewTask: focus,
+          notifyNewMyTasks: notifyMine,
           notificationTimeoutSeconds: Number(notifySeconds),
         })
       )
@@ -145,6 +153,12 @@ function SettingsForm({
           onChange={setTasksInterval}
         />
         <IntervalField
+          id="my-tasks-interval"
+          label="My tasks"
+          value={myTasksInterval}
+          onChange={setMyTasksInterval}
+        />
+        <IntervalField
           id="billing-interval"
           label="Billing hours"
           value={billingInterval}
@@ -173,8 +187,15 @@ function SettingsForm({
           checked={focus}
           onCheckedChange={setFocus}
         />
+        <ToggleField
+          id="notify-mine"
+          label="Notify me about newly assigned tasks"
+          hint="The wider My tasks list. It never pulls the window forward, and hidden tasks stay silent."
+          checked={notifyMine}
+          onCheckedChange={setNotifyMine}
+        />
 
-        {notify && (
+        {(notify || notifyMine) && (
           <>
             <IntervalField
               id="notify-seconds"

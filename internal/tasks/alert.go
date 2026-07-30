@@ -3,17 +3,17 @@ package tasks
 import (
 	"fmt"
 	"strings"
-)
 
-// alertListLimit is how many tasks to name before summarising the rest. Notification
-// bodies get truncated by the OS, and a wall of text is worse than a count.
-const alertListLimit = 3
+	"github.com/osm-vishnukyatannawar/raphael/internal/alerttext"
+)
 
 // AlertText is the wording for a new-task notification: the phrase Raphael
 // leads with, and the list of what arrived.
 //
 // Kept here as a pure function so the wording is testable without a desktop
-// session, and so internal/notify stays free of any knowledge of tasks.
+// session, and so internal/notify stays free of any knowledge of tasks. The
+// truncation rule lives in internal/alerttext, shared with the assigned-task
+// list.
 func AlertText(arrived []Task) (headline, body string) {
 	if len(arrived) == 0 {
 		return "", ""
@@ -25,13 +25,10 @@ func AlertText(arrived []Task) (headline, body string) {
 		headline = fmt.Sprintf("You have %d new tasks for review", len(arrived))
 	}
 
-	lines := make([]string, 0, alertListLimit+1)
-	for _, t := range arrived[:min(len(arrived), alertListLimit)] {
-		lines = append(lines, strings.TrimSpace(t.ShortCode+" "+t.Name))
-	}
-	if extra := len(arrived) - alertListLimit; extra > 0 {
-		lines = append(lines, fmt.Sprintf("and %d more", extra))
+	items := make([]string, 0, len(arrived))
+	for _, t := range arrived {
+		items = append(items, strings.TrimSpace(t.ShortCode+" "+t.Name))
 	}
 
-	return headline, strings.Join(lines, "\n")
+	return headline, alerttext.Body(items)
 }

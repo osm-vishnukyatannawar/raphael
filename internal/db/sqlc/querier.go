@@ -9,36 +9,56 @@ import (
 )
 
 type Querier interface {
+	AcknowledgeAllMyTasks(ctx context.Context) error
 	AcknowledgeAllTasks(ctx context.Context) error
+	AcknowledgeMyTask(ctx context.Context, taskID int64) error
 	AcknowledgeTask(ctx context.Context, taskID int64) error
 	DeleteAllBillingDays(ctx context.Context) error
 	DeleteAllMonitorActuals(ctx context.Context) error
+	DeleteAllMyTasks(ctx context.Context) error
 	DeleteAllProjects(ctx context.Context) error
+	DeleteAllSeenMyTasks(ctx context.Context) error
 	DeleteAllSeenTasks(ctx context.Context) error
 	DeleteAllTasks(ctx context.Context) error
 	DeleteMonitor(ctx context.Context, id int64) error
 	DeleteMonitorProjects(ctx context.Context, monitorID int64) error
 	DeleteMonitorTargets(ctx context.Context, monitorID int64) error
+	DeleteMyTaskProjectFilter(ctx context.Context) error
+	DeleteMyTaskStatusFilter(ctx context.Context) error
 	DeletePinestemAccount(ctx context.Context) error
 	DeleteProfile(ctx context.Context) error
 	GetMonitor(ctx context.Context, id int64) (Monitor, error)
 	GetPinestemAccount(ctx context.Context) (PinestemAccount, error)
 	GetProfile(ctx context.Context) (AppProfile, error)
 	GetSettings(ctx context.Context) (AppSetting, error)
+	// Re-hiding an already hidden task refreshes its labels rather than failing.
+	HideMyTask(ctx context.Context, arg HideMyTaskParams) error
 	InsertBillingDay(ctx context.Context, arg InsertBillingDayParams) error
 	InsertMonitor(ctx context.Context, arg InsertMonitorParams) (int64, error)
 	InsertMonitorActual(ctx context.Context, arg InsertMonitorActualParams) error
 	InsertMonitorProject(ctx context.Context, arg InsertMonitorProjectParams) error
 	InsertMonitorTarget(ctx context.Context, arg InsertMonitorTargetParams) error
+	InsertMyTask(ctx context.Context, arg InsertMyTaskParams) error
+	InsertMyTaskProjectFilter(ctx context.Context, arg InsertMyTaskProjectFilterParams) error
+	InsertMyTaskStatusFilter(ctx context.Context, arg InsertMyTaskStatusFilterParams) error
 	InsertProject(ctx context.Context, arg InsertProjectParams) error
+	InsertSeenMyTask(ctx context.Context, arg InsertSeenMyTaskParams) error
 	InsertSeenTask(ctx context.Context, arg InsertSeenTaskParams) error
 	InsertTask(ctx context.Context, arg InsertTaskParams) error
 	ListBillingDays(ctx context.Context) ([]BillingDay, error)
+	ListHiddenMyTasks(ctx context.Context) ([]HiddenMyTask, error)
 	ListMonitorActuals(ctx context.Context) ([]MonitorActual, error)
 	ListMonitorProjects(ctx context.Context) ([]MonitorProject, error)
 	ListMonitorTargets(ctx context.Context) ([]MonitorTarget, error)
 	ListMonitors(ctx context.Context) ([]Monitor, error)
+	ListMyTaskProjectFilter(ctx context.Context) ([]MyTaskProjectFilter, error)
+	ListMyTaskStatusFilter(ctx context.Context) ([]MyTaskStatusFilter, error)
+	// Soonest due first, undated last, newest-modified breaking ties. Both flags are
+	// COALESCEd to the safe default: an unknown task is "already seen" (never a
+	// surprise highlight) and not hidden.
+	ListMyTasks(ctx context.Context) ([]ListMyTasksRow, error)
 	ListProjects(ctx context.Context) ([]Project, error)
+	ListSeenMyTasks(ctx context.Context) ([]SeenMyTask, error)
 	ListSeenTasks(ctx context.Context) ([]SeenTask, error)
 	// COALESCE defaults to 1 ("already seen"): a task row without a seen_task row
 	// must never render as a new-task highlight.
@@ -48,7 +68,10 @@ type Querier interface {
 	SaveSettings(ctx context.Context, arg SaveSettingsParams) error
 	SetBillingSyncedAt(ctx context.Context, billingSyncedAt *string) error
 	SetMonitorsSyncedAt(ctx context.Context, monitorsSyncedAt *string) error
+	SetMyTasksSyncedAt(ctx context.Context, myTasksSyncedAt *string) error
 	SetTasksSyncedAt(ctx context.Context, tasksSyncedAt *string) error
+	UnhideAllMyTasks(ctx context.Context) error
+	UnhideMyTask(ctx context.Context, taskID int64) error
 	UpdateMonitor(ctx context.Context, arg UpdateMonitorParams) error
 	UpsertPinestemAccount(ctx context.Context, arg UpsertPinestemAccountParams) error
 	UpsertProfile(ctx context.Context, arg UpsertProfileParams) error

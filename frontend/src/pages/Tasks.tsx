@@ -1,32 +1,23 @@
-import { AlertTriangle, Check, ExternalLink, RefreshCw } from 'lucide-react'
+import { AlertTriangle, Check, RefreshCw } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import BillingBar from '@/components/BillingBar'
+import TaskRow, { type RowTask } from '@/components/TaskRow'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { parseISO, relativeTime } from '@/lib/time'
 import {
-  formatDate,
-  isOverdue,
-  parseISO,
-  parsePinestemDate,
-  relativeTime,
-} from '@/lib/time'
-import {
-  GetBilling,
   ListTasks,
   MarkTasksSeen,
   OpenTask,
-  RefreshBilling,
   RefreshTasks,
 } from '@wails/go/main/App'
-import { main, type settings, type tasks } from '@wails/go/models'
+import { main, type settings } from '@wails/go/models'
 import { EventsOff, EventsOn } from '@wails/runtime/runtime'
 
-/** Emitted by the Go pollers — see internal/poller for why they live there. */
+/** Emitted by the Go poller — see internal/poller for why it lives there. */
 const EVENT_TASKS = 'tasks:updated'
-const EVENT_BILLING = 'billing:updated'
 
 type Props = {
   /** Read-only here; the settings dialog lives in the shell. */
@@ -35,52 +26,32 @@ type Props = {
 
 export default function Tasks({ prefs }: Props) {
   const [result, setResult] = useState<main.TasksResult | null>(null)
-  const [billing, setBilling] = useState<main.BillingResult | null>(null)
   const [refreshing, setRefreshing] = useState(false)
-  const [refreshingBilling, setRefreshingBilling] = useState(false)
 
-  // Held in refs so a manual refresh can't stack on top of itself, without
-  // making the callbacks depend on the spinner state.
-  const tasksInFlight = useRef(false)
-  const billingInFlight = useRef(false)
+  // Held in a ref so a manual refresh can't stack on top of itself, without
+  // making the callback depend on the spinner state.
+  const inFlight = useRef(false)
 
   const refresh = useCallback(async () => {
-    if (tasksInFlight.current) return
-    tasksInFlight.current = true
+    if (inFlight.current) return
+    inFlight.current = true
     setRefreshing(true)
     try {
       setResult(await RefreshTasks())
     } finally {
-      tasksInFlight.current = false
+      inFlight.current = false
       setRefreshing(false)
     }
   }, [])
 
-  const refreshBilling = useCallback(async () => {
-    if (billingInFlight.current) return
-    billingInFlight.current = true
-    setRefreshingBilling(true)
-    try {
-      setBilling(await RefreshBilling())
-    } finally {
-      billingInFlight.current = false
-      setRefreshingBilling(false)
-    }
-  }, [])
-
-  // First paint: cached rows immediately, no network. The Go pollers fire their
-  // own refresh on startup, and the results arrive as events below.
+  // First paint: cached rows immediately, no network. The Go poller fires its
+  // own refresh on startup, and the result arrives as the event below.
   useEffect(() => {
     let cancelled = false
 
     void (async () => {
-      const [cachedTasks, cachedBilling] = await Promise.all([
-        ListTasks(),
-        GetBilling(),
-      ])
-      if (cancelled) return
-      setResult(cachedTasks)
-      setBilling(cachedBilling)
+      const cached = await ListTasks()
+      if (!cancelled) setResult(cached)
     })()
 
     return () => {
@@ -93,13 +64,9 @@ export default function Tasks({ prefs }: Props) {
   // window is not in front.
   useEffect(() => {
     EventsOn(EVENT_TASKS, (payload: main.TasksResult) => setResult(payload))
-    EventsOn(EVENT_BILLING, (payload: main.BillingResult) =>
-      setBilling(payload)
-    )
 
     return () => {
       EventsOff(EVENT_TASKS)
-      EventsOff(EVENT_BILLING)
     }
   }, [])
 
@@ -121,7 +88,7 @@ export default function Tasks({ prefs }: Props) {
     )
   }
 
-  function open(task: tasks.Task) {
+  function open(task: RowTask) {
     void OpenTask(task.taskId, task.shortCode)
     // Opening a task is what "seen" means; clear it here too so the highlight
     // goes immediately rather than at the next refresh.
@@ -138,19 +105,13 @@ export default function Tasks({ prefs }: Props) {
   }
 
   return (
-    <main className="mx-auto w-full max-w-3xl p-6">
-      <BillingBar
-        result={billing}
-        refreshing={refreshingBilling}
-        onRefresh={() => void refreshBilling()}
-      />
-
-      <div className="mb-4 flex items-end justify-between">
+    <section className="flex min-h-0 flex-col">
+      <div className="mb-3 flex items-end justify-between gap-2">
         <div>
-          <h1 className="flex items-center gap-2 text-lg font-medium">
+          <h2 className="flex items-center gap-2 text-base font-medium">
             In review{!loading && ` (${list.length})`}
             {newCount > 0 && <Badge>{newCount} new</Badge>}
-          </h1>
+          </h2>
           <p className="text-muted-foreground text-xs">
             {result?.syncedAt
               ? `Updated ${relativeTime(parseISO(result.syncedAt))}`
@@ -185,7 +146,7 @@ export default function Tasks({ prefs }: Props) {
 
       {/* A failed refresh warns without discarding the cached rows below. */}
       {result?.errorMessage && (
-        <Alert variant="destructive" className="mb-4">
+        <Alert variant="destructive" className="mb-3">
           <AlertTriangle className="size-4" />
           <AlertDescription>
             {result.fromCacheOnly
@@ -212,73 +173,6 @@ export default function Tasks({ prefs }: Props) {
           ))}
         </ul>
       )}
-    </main>
-  )
-}
-
-function TaskRow({
-  task,
-  onOpen,
-}: {
-  task: tasks.Task
-  onOpen: (task: tasks.Task) => void
-}) {
-  const due = parsePinestemDate(task.dueDate)
-  const modified = parsePinestemDate(task.modifiedOn)
-  const overdue = isOverdue(due)
-
-  return (
-    <li>
-      <button
-        type="button"
-        onClick={() => onOpen(task)}
-        className={`group flex w-full items-start gap-3 border-l-2 px-4 py-3 text-left transition-colors ${
-          task.isNew
-            ? 'border-l-primary bg-primary/5 hover:bg-primary/10'
-            : 'hover:bg-accent/50 border-l-transparent'
-        }`}
-      >
-        <span
-          aria-hidden
-          className="mt-1.5 size-2 shrink-0 rounded-full"
-          style={{
-            backgroundColor: task.statusColor || 'var(--muted-foreground)',
-          }}
-        />
-
-        <div className="min-w-0 flex-1">
-          {/*
-            shrink-0 on the code stops flex from squeezing "REST-2408" onto two
-            lines when the title is long; min-w-0 on the row is what lets the
-            title actually truncate inside a nested flex container.
-          */}
-          <div className="flex min-w-0 items-baseline gap-2">
-            <span className="shrink-0 font-mono text-xs font-medium whitespace-nowrap">
-              {task.shortCode}
-            </span>
-            <span className="truncate text-sm">{task.name}</span>
-            {task.isNew && (
-              <Badge variant="default" className="shrink-0 text-[10px]">
-                New
-              </Badge>
-            )}
-          </div>
-
-          <p className="text-muted-foreground mt-1 text-xs">
-            {task.projectName}
-            {task.priority && ` · ${task.priority}`}
-            {due && (
-              <span className={overdue ? 'text-destructive font-medium' : ''}>
-                {' · due '}
-                {formatDate(due)}
-              </span>
-            )}
-            {modified && ` · modified ${relativeTime(modified)}`}
-          </p>
-        </div>
-
-        <ExternalLink className="text-muted-foreground mt-1 size-3.5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100" />
-      </button>
-    </li>
+    </section>
   )
 }

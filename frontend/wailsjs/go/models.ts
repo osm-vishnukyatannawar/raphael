@@ -222,6 +222,44 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class MyTasksResult {
+	    tasks: mytasks.Task[];
+	    hidden: mytasks.HiddenTask[];
+	    syncedAt: string;
+	    errorMessage: string;
+	    fromCacheOnly: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new MyTasksResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.tasks = this.convertValues(source["tasks"], mytasks.Task);
+	        this.hidden = this.convertValues(source["hidden"], mytasks.HiddenTask);
+	        this.syncedAt = source["syncedAt"];
+	        this.errorMessage = source["errorMessage"];
+	        this.fromCacheOnly = source["fromCacheOnly"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class SignInResult {
 	    session?: identity.Session;
 	    invalidLogin: boolean;
@@ -462,6 +500,163 @@ export namespace monitor {
 
 }
 
+export namespace mytasks {
+	
+	export class StatusFilter {
+	    id: number;
+	    name: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new StatusFilter(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	    }
+	}
+	export class ProjectFilter {
+	    code: string;
+	    name: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ProjectFilter(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.code = source["code"];
+	        this.name = source["name"];
+	    }
+	}
+	export class Filter {
+	    projects: ProjectFilter[];
+	    statuses: StatusFilter[];
+	
+	    static createFrom(source: any = {}) {
+	        return new Filter(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.projects = this.convertValues(source["projects"], ProjectFilter);
+	        this.statuses = this.convertValues(source["statuses"], StatusFilter);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class HiddenTask {
+	    taskId: number;
+	    shortCode: string;
+	    name: string;
+	    hiddenAt: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new HiddenTask(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.taskId = source["taskId"];
+	        this.shortCode = source["shortCode"];
+	        this.name = source["name"];
+	        this.hiddenAt = source["hiddenAt"];
+	    }
+	}
+	export class Options {
+	    projects: pinestem.Project[];
+	    statuses: pinestem.TaskStatus[];
+	
+	    static createFrom(source: any = {}) {
+	        return new Options(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.projects = this.convertValues(source["projects"], pinestem.Project);
+	        this.statuses = this.convertValues(source["statuses"], pinestem.TaskStatus);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
+	export class Task {
+	    taskId: number;
+	    shortCode: string;
+	    name: string;
+	    projectCode: string;
+	    projectName: string;
+	    priority: string;
+	    statusId: number;
+	    statusType: string;
+	    statusColor: string;
+	    dueDate: string;
+	    modifiedOn: string;
+	    sprintName: string;
+	    competencyName: string;
+	    isNew: boolean;
+	    hidden: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Task(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.taskId = source["taskId"];
+	        this.shortCode = source["shortCode"];
+	        this.name = source["name"];
+	        this.projectCode = source["projectCode"];
+	        this.projectName = source["projectName"];
+	        this.priority = source["priority"];
+	        this.statusId = source["statusId"];
+	        this.statusType = source["statusType"];
+	        this.statusColor = source["statusColor"];
+	        this.dueDate = source["dueDate"];
+	        this.modifiedOn = source["modifiedOn"];
+	        this.sprintName = source["sprintName"];
+	        this.competencyName = source["competencyName"];
+	        this.isNew = source["isNew"];
+	        this.hidden = source["hidden"];
+	    }
+	}
+
+}
+
 export namespace pinestem {
 	
 	export class Member {
@@ -496,6 +691,24 @@ export namespace pinestem {
 	        this.statusId = source["statusId"];
 	    }
 	}
+	export class TaskStatus {
+	    id: number;
+	    name: string;
+	    color: string;
+	    isDone: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new TaskStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.color = source["color"];
+	        this.isDone = source["isDone"];
+	    }
+	}
 
 }
 
@@ -504,13 +717,16 @@ export namespace settings {
 	export class Settings {
 	    refreshIntervalSeconds: number;
 	    billingRefreshIntervalSeconds: number;
+	    myTasksRefreshIntervalSeconds: number;
 	    weekStartDay: number;
 	    notifyNewTasks: boolean;
 	    focusOnNewTask: boolean;
+	    notifyNewMyTasks: boolean;
 	    notificationTimeoutSeconds: number;
 	    tasksSyncedAt: string;
 	    billingSyncedAt: string;
 	    monitorsSyncedAt: string;
+	    myTasksSyncedAt: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
@@ -520,13 +736,16 @@ export namespace settings {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.refreshIntervalSeconds = source["refreshIntervalSeconds"];
 	        this.billingRefreshIntervalSeconds = source["billingRefreshIntervalSeconds"];
+	        this.myTasksRefreshIntervalSeconds = source["myTasksRefreshIntervalSeconds"];
 	        this.weekStartDay = source["weekStartDay"];
 	        this.notifyNewTasks = source["notifyNewTasks"];
 	        this.focusOnNewTask = source["focusOnNewTask"];
+	        this.notifyNewMyTasks = source["notifyNewMyTasks"];
 	        this.notificationTimeoutSeconds = source["notificationTimeoutSeconds"];
 	        this.tasksSyncedAt = source["tasksSyncedAt"];
 	        this.billingSyncedAt = source["billingSyncedAt"];
 	        this.monitorsSyncedAt = source["monitorsSyncedAt"];
+	        this.myTasksSyncedAt = source["myTasksSyncedAt"];
 	    }
 	}
 

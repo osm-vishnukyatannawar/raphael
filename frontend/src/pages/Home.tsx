@@ -5,10 +5,10 @@ import SettingsDialog from '@/components/SettingsDialog'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import Dashboard from '@/pages/Dashboard'
 import Monitors from '@/pages/Monitors'
-import Tasks from '@/pages/Tasks'
-import { GetSettings, SignOut } from '@wails/go/main/App'
-import { type identity, type settings } from '@wails/go/models'
+import { GetSettings, Info, SignOut } from '@wails/go/main/App'
+import { type identity, type main, type settings } from '@wails/go/models'
 
 type Props = {
   session: identity.Session
@@ -38,14 +38,18 @@ function initials(name: string): string {
  */
 export default function Home({ session, onSignedOut }: Props) {
   const [prefs, setPrefs] = useState<settings.Settings | null>(null)
+  const [info, setInfo] = useState<main.AppInfo | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
 
   useEffect(() => {
     let cancelled = false
 
     void (async () => {
-      const loaded = await GetSettings()
-      if (!cancelled) setPrefs(loaded)
+      const [loaded, running] = await Promise.all([GetSettings(), Info()])
+      if (cancelled) return
+
+      setPrefs(loaded)
+      setInfo(running)
     })()
 
     return () => {
@@ -74,6 +78,18 @@ export default function Home({ session, onSignedOut }: Props) {
         </div>
 
         <div className="flex items-center gap-1">
+          {/*
+            The version is baked in at build time via -ldflags. A build made any
+            other way reports "dev", which is itself the useful signal.
+          */}
+          {info && (
+            <span
+              className="text-muted-foreground mr-2 font-mono text-xs"
+              title={`Raphael ${info.version} on ${info.platform}`}
+            >
+              {info.version}
+            </span>
+          )}
           <Button
             variant="ghost"
             size="icon"
@@ -98,23 +114,23 @@ export default function Home({ session, onSignedOut }: Props) {
         their event subscriptions and make them re-fetch on every switch.
       */}
       <Tabs
-        defaultValue="review"
+        defaultValue="dashboard"
         className="flex min-h-0 flex-1 flex-col gap-0"
       >
         <div className="flex justify-center border-b px-6 py-2">
           <TabsList>
-            <TabsTrigger value="review">Review</TabsTrigger>
+            <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
             <TabsTrigger value="targets">Targets</TabsTrigger>
           </TabsList>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
           <TabsContent
-            value="review"
+            value="dashboard"
             forceMount
             className="data-[state=inactive]:hidden"
           >
-            <Tasks prefs={prefs} />
+            <Dashboard prefs={prefs} />
           </TabsContent>
           <TabsContent
             value="targets"

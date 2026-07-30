@@ -16,6 +16,7 @@ import (
 	"github.com/osm-vishnukyatannawar/raphael/internal/db"
 	"github.com/osm-vishnukyatannawar/raphael/internal/identity"
 	"github.com/osm-vishnukyatannawar/raphael/internal/monitor"
+	"github.com/osm-vishnukyatannawar/raphael/internal/mytasks"
 	"github.com/osm-vishnukyatannawar/raphael/internal/notify"
 	"github.com/osm-vishnukyatannawar/raphael/internal/pinestem"
 	"github.com/osm-vishnukyatannawar/raphael/internal/poller"
@@ -34,11 +35,16 @@ const (
 	eventTasksUpdated    = "tasks:updated"
 	eventBillingUpdated  = "billing:updated"
 	eventMonitorsUpdated = "monitors:updated"
+	eventMyTasksUpdated  = "mytasks:updated"
 )
 
-// notificationID is reused for every new-task alert so the OS replaces the
-// previous one instead of stacking a column of them.
-const notificationID = "raphael-new-tasks"
+// Each alert kind reuses one ID so the OS replaces the previous notification of
+// that kind instead of stacking a column of them. They are separate IDs so a
+// review alert and an assignment alert do not overwrite each other.
+const (
+	notificationID        = "raphael-new-tasks"
+	myTasksNotificationID = "raphael-new-my-tasks"
+)
 
 // App is the root object bound to the frontend. Exported methods on App become
 // callable from TypeScript via the generated bindings in frontend/wailsjs.
@@ -52,6 +58,7 @@ type App struct {
 	client   *pinestem.Client
 	identity *identity.Service
 	tasks    *tasks.Service
+	mytasks  *mytasks.Service
 	billing  *billing.Service
 	settings *settings.Service
 	monitors *monitor.Service
@@ -61,6 +68,7 @@ type App struct {
 
 	tasksPoller   *poller.Poller
 	billingPoller *poller.Poller
+	myTasksPoller *poller.Poller
 
 	// startupErr is recorded rather than fatal: a window that explains it can't
 	// open its database is better than one that vanishes on launch.
@@ -137,13 +145,14 @@ func (a *App) startup(ctx context.Context) {
 	a.identity = identity.New(database, client, store, keyringOK)
 	a.settings = settings.New(database)
 	a.tasks = tasks.New(database, client, a.identity, a.settings)
+	a.mytasks = mytasks.New(database, client, a.identity, a.settings)
 	a.billing = billing.New(database, client, a.identity, a.settings)
 	a.monitors = monitor.New(database, client, a.identity)
 
 	a.startPollers(ctx)
 }
 
-// startPollers arms both refresh loops at their stored cadences.
+// startPollers arms every refresh loop at its stored cadence.
 func (a *App) startPollers(ctx context.Context) {
 	current, err := a.settings.Get(ctx)
 	if err != nil {
@@ -153,14 +162,17 @@ func (a *App) startPollers(ctx context.Context) {
 
 	a.tasksPoller = poller.New(seconds(current.RefreshIntervalSeconds), a.syncTasks)
 	a.billingPoller = poller.New(seconds(current.BillingRefreshIntervalSeconds), a.syncBilling)
+	a.myTasksPoller = poller.New(seconds(current.MyTasksRefreshIntervalSeconds), a.syncMyTasks)
 
 	a.tasksPoller.Start(ctx)
 	a.billingPoller.Start(ctx)
+	a.myTasksPoller.Start(ctx)
 
 	// Paint live data on launch rather than making the user wait out a whole
 	// interval on top of whatever the cache last held.
 	a.tasksPoller.Trigger()
 	a.billingPoller.Trigger()
+	a.myTasksPoller.Trigger()
 }
 
 // shutdown stops the loops and closes the database on window close.
@@ -170,6 +182,9 @@ func (a *App) shutdown(ctx context.Context) {
 	}
 	if a.billingPoller != nil {
 		a.billingPoller.Stop()
+	}
+	if a.myTasksPoller != nil {
+		a.myTasksPoller.Stop()
 	}
 
 	if a.notifications != nil {
@@ -243,6 +258,7 @@ func (a *App) SignIn(username, password string) SignInResult {
 	// A newly signed-in account has its own queue and its own hours.
 	a.tasksPoller.Trigger()
 	a.billingPoller.Trigger()
+	a.myTasksPoller.Trigger()
 
 	return SignInResult{Session: session, SuggestedName: session.DisplayName}
 }
@@ -308,6 +324,133 @@ func (a *App) RefreshTasks() TasksResult {
 	}
 
 	return a.refreshTasks(a.ctx)
+}
+
+// MyTasksResult is the assigned-task equivalent of TasksResult. Hidden carries
+// the whole hide list, including tasks the current filter no longer returns —
+// otherwise there would be no way to unhide them.
+type MyTasksResult struct {
+	Tasks         []mytasks.Task       `json:"tasks"`
+	Hidden        []mytasks.HiddenTask `json:"hidden"`
+	SyncedAt      string               `json:"syncedAt"`
+	ErrorMessage  string               `json:"errorMessage"`
+	FromCacheOnly bool                 `json:"fromCacheOnly"`
+}
+
+// ListMyTasks returns the cached assigned tasks without hitting the network.
+func (a *App) ListMyTasks() MyTasksResult {
+	if a.mytasks == nil {
+		return MyTasksResult{
+			Tasks:        []mytasks.Task{},
+			Hidden:       []mytasks.HiddenTask{},
+			ErrorMessage: "Raphael is not ready yet.",
+		}
+	}
+
+	snapshot, err := a.mytasks.Snapshot(a.ctx)
+	if err != nil {
+		log.Printf("list my tasks: %v", err)
+
+		return MyTasksResult{
+			Tasks:        []mytasks.Task{},
+			Hidden:       []mytasks.HiddenTask{},
+			ErrorMessage: err.Error(),
+		}
+	}
+
+	return MyTasksResult{
+		Tasks:  snapshot.Tasks,
+		Hidden: snapshot.Hidden,
+		SyncedAt: a.stamp(func(s *settings.Settings) string {
+			return s.MyTasksSyncedAt
+		}),
+	}
+}
+
+// RefreshMyTasks pulls the assigned-task list on demand.
+func (a *App) RefreshMyTasks() MyTasksResult {
+	if a.mytasks == nil {
+		return MyTasksResult{
+			Tasks:        []mytasks.Task{},
+			Hidden:       []mytasks.HiddenTask{},
+			ErrorMessage: "Raphael is not ready yet.",
+		}
+	}
+
+	return a.refreshMyTasks(a.ctx)
+}
+
+// GetMyTasksFilter returns the saved project and status selection.
+func (a *App) GetMyTasksFilter() (*mytasks.Filter, error) {
+	if a.mytasks == nil {
+		return nil, errors.New("raphael is not ready yet")
+	}
+
+	return a.mytasks.Filter(a.ctx)
+}
+
+// SaveMyTasksFilter stores the selection and refreshes, so the list reflects the
+// new filter immediately rather than at the next tick.
+func (a *App) SaveMyTasksFilter(in mytasks.Filter) (*mytasks.Filter, error) {
+	if a.mytasks == nil {
+		return nil, errors.New("raphael is not ready yet")
+	}
+
+	saved, err := a.mytasks.SaveFilter(a.ctx, in)
+	if err != nil {
+		return nil, err
+	}
+
+	a.myTasksPoller.Trigger()
+
+	return saved, nil
+}
+
+// GetMyTasksOptions is the live project and status list the filter dialog picks
+// from. Fetched on demand rather than cached: it is only needed while the dialog
+// is open, and a stale status list is how a filter silently stops matching.
+func (a *App) GetMyTasksOptions() (*mytasks.Options, error) {
+	if a.mytasks == nil {
+		return nil, errors.New("raphael is not ready yet")
+	}
+
+	return a.mytasks.Options(a.ctx)
+}
+
+// HideMyTask takes a task out of the visible list until it is unhidden.
+func (a *App) HideMyTask(taskID int64) error {
+	if a.mytasks == nil {
+		return errors.New("raphael is not ready yet")
+	}
+
+	return a.mytasks.Hide(a.ctx, taskID)
+}
+
+// UnhideMyTask puts a hidden task back in the list.
+func (a *App) UnhideMyTask(taskID int64) error {
+	if a.mytasks == nil {
+		return errors.New("raphael is not ready yet")
+	}
+
+	return a.mytasks.Unhide(a.ctx, taskID)
+}
+
+// UnhideAllMyTasks empties the hide list.
+func (a *App) UnhideAllMyTasks() error {
+	if a.mytasks == nil {
+		return errors.New("raphael is not ready yet")
+	}
+
+	return a.mytasks.UnhideAll(a.ctx)
+}
+
+// MarkMyTasksSeen clears every highlight on the assigned-task list.
+func (a *App) MarkMyTasksSeen() error {
+	if a.mytasks == nil {
+		return errors.New("raphael is not ready yet")
+	}
+
+	return a.mytasks.AcknowledgeAll(a.ctx)
 }
 
 // GetBilling returns the cached billing summary without hitting the network.
@@ -477,6 +620,7 @@ func (a *App) SaveSettings(in settings.Settings) (*settings.Settings, error) {
 
 	a.tasksPoller.Reload(seconds(saved.RefreshIntervalSeconds))
 	a.billingPoller.Reload(seconds(saved.BillingRefreshIntervalSeconds))
+	a.myTasksPoller.Reload(seconds(saved.MyTasksRefreshIntervalSeconds))
 
 	return saved, nil
 }
@@ -505,9 +649,14 @@ func (a *App) OpenTask(taskID int64, shortCode string) error {
 		return err
 	}
 
+	// Both lists, because a task in review is also a task assigned to you: the
+	// same row can be highlighted in each, and opening it clears both.
 	if err := a.tasks.Acknowledge(a.ctx, taskID); err != nil {
 		// Worth logging, not worth refusing to open the task over.
 		log.Printf("open task: acknowledge %d: %v", taskID, err)
+	}
+	if err := a.mytasks.Acknowledge(a.ctx, taskID); err != nil {
+		log.Printf("open task: acknowledge assigned %d: %v", taskID, err)
 	}
 
 	wailsruntime.BrowserOpenURL(
@@ -523,6 +672,13 @@ func (a *App) OpenTask(taskID int64, shortCode string) error {
 func (a *App) syncTasks(ctx context.Context) {
 	result := a.refreshTasks(ctx)
 	wailsruntime.EventsEmit(ctx, eventTasksUpdated, result)
+}
+
+// syncMyTasks is the assigned-task poller's callback. It runs on its own
+// interval, deliberately not shared with the review queue's.
+func (a *App) syncMyTasks(ctx context.Context) {
+	result := a.refreshMyTasks(ctx)
+	wailsruntime.EventsEmit(ctx, eventMyTasksUpdated, result)
 }
 
 // syncBilling refreshes the personal figures and the monitors together. They
@@ -566,6 +722,40 @@ func (a *App) refreshTasks(ctx context.Context) TasksResult {
 	a.alert(ctx, result.New)
 
 	return TasksResult{Tasks: result.Tasks, SyncedAt: syncedAt()}
+}
+
+// refreshMyTasks is refreshTasks for the assigned list: same cache-preserving
+// failure behaviour, its own alert.
+func (a *App) refreshMyTasks(ctx context.Context) MyTasksResult {
+	syncedAt := func() string {
+		return a.stamp(func(s *settings.Settings) string { return s.MyTasksSyncedAt })
+	}
+
+	result, err := a.mytasks.Refresh(ctx)
+	if err != nil {
+		if errors.Is(err, identity.ErrNotOnboarded) {
+			// Expected before sign-in; the poller is already running by then.
+			return MyTasksResult{Tasks: []mytasks.Task{}, Hidden: []mytasks.HiddenTask{}}
+		}
+		log.Printf("refresh my tasks: %v", err)
+
+		cached, cacheErr := a.mytasks.Snapshot(ctx)
+		if cacheErr != nil {
+			cached = &mytasks.Result{Tasks: []mytasks.Task{}, Hidden: []mytasks.HiddenTask{}}
+		}
+
+		return MyTasksResult{
+			Tasks:         cached.Tasks,
+			Hidden:        cached.Hidden,
+			SyncedAt:      syncedAt(),
+			ErrorMessage:  err.Error(),
+			FromCacheOnly: true,
+		}
+	}
+
+	a.alertMyTasks(ctx, result.New)
+
+	return MyTasksResult{Tasks: result.Tasks, Hidden: result.Hidden, SyncedAt: syncedAt()}
 }
 
 func (a *App) refreshBilling(ctx context.Context) BillingResult {
@@ -640,21 +830,55 @@ func (a *App) alert(ctx context.Context, arrived []tasks.Task) {
 
 	if current.NotifyNewTasks {
 		headline, body := tasks.AlertText(arrived)
-		timeout, _ := current.NotificationTimeout()
-
-		err := a.notifier.Notify(ctx, notify.Notification{
-			ID:      notificationID,
-			Title:   "Raphael",
-			Body:    headline + "\n" + body,
-			Timeout: timeout,
-		})
-		if err != nil {
-			log.Printf("alert: %v", err)
-		}
+		a.notifyDesktop(ctx, notificationID, headline, body, current)
 	}
 
 	if current.FocusOnNewTask {
 		a.notifier.Raise(ctx)
+	}
+}
+
+// alertMyTasks notifies for newly assigned tasks.
+//
+// It never raises the window, unlike the review alert: a task landing in your
+// backlog is worth telling you about, not worth pulling the window over
+// whatever you were doing. Hidden tasks never reach here — internal/mytasks
+// leaves them out of Result.New.
+func (a *App) alertMyTasks(ctx context.Context, arrived []mytasks.Task) {
+	if len(arrived) == 0 {
+		return
+	}
+
+	current, err := a.settings.Get(ctx)
+	if err != nil {
+		log.Printf("alert my tasks: read settings: %v", err)
+
+		return
+	}
+
+	if !current.NotifyNewMyTasks {
+		return
+	}
+
+	headline, body := mytasks.AlertText(arrived)
+	a.notifyDesktop(ctx, myTasksNotificationID, headline, body, current)
+}
+
+// notifyDesktop sends one alert. Shared by both lists so the title, the body
+// layout and the timeout handling stay identical between them.
+func (a *App) notifyDesktop(
+	ctx context.Context, id, headline, body string, current *settings.Settings,
+) {
+	timeout, _ := current.NotificationTimeout()
+
+	err := a.notifier.Notify(ctx, notify.Notification{
+		ID:      id,
+		Title:   "Raphael",
+		Body:    headline + "\n" + body,
+		Timeout: timeout,
+	})
+	if err != nil {
+		log.Printf("alert: %v", err)
 	}
 }
 

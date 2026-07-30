@@ -22,12 +22,22 @@ type AppSetting struct {
 	BillingSyncedAt               *string `json:"billing_synced_at"`
 	NotificationTimeoutSeconds    int64   `json:"notification_timeout_seconds"`
 	MonitorsSyncedAt              *string `json:"monitors_synced_at"`
+	MyTasksRefreshIntervalSeconds int64   `json:"my_tasks_refresh_interval_seconds"`
+	NotifyNewMyTasks              int64   `json:"notify_new_my_tasks"`
+	MyTasksSyncedAt               *string `json:"my_tasks_synced_at"`
 }
 
 type BillingDay struct {
 	Day                string `json:"day"`
 	BillableMinutes    int64  `json:"billable_minutes"`
 	NonBillableMinutes int64  `json:"non_billable_minutes"`
+}
+
+type HiddenMyTask struct {
+	TaskID    int64  `json:"task_id"`
+	ShortCode string `json:"short_code"`
+	Name      string `json:"name"`
+	HiddenAt  string `json:"hidden_at"`
 }
 
 type Monitor struct {
@@ -60,6 +70,33 @@ type MonitorTarget struct {
 	TargetMinutes int64  `json:"target_minutes"`
 }
 
+type MyTask struct {
+	TaskID         int64  `json:"task_id"`
+	ShortCode      string `json:"short_code"`
+	Name           string `json:"name"`
+	ProjectCode    string `json:"project_code"`
+	ProjectName    string `json:"project_name"`
+	Priority       string `json:"priority"`
+	StatusID       int64  `json:"status_id"`
+	StatusType     string `json:"status_type"`
+	StatusColor    string `json:"status_color"`
+	DueDate        string `json:"due_date"`
+	ModifiedOn     string `json:"modified_on"`
+	SprintName     string `json:"sprint_name"`
+	CompetencyName string `json:"competency_name"`
+	SyncedAt       string `json:"synced_at"`
+}
+
+type MyTaskProjectFilter struct {
+	ProjectCode string `json:"project_code"`
+	ProjectName string `json:"project_name"`
+}
+
+type MyTaskStatusFilter struct {
+	StatusID   int64  `json:"status_id"`
+	StatusName string `json:"status_name"`
+}
+
 type PinestemAccount struct {
 	ID               int64   `json:"id"`
 	UserID           int64   `json:"user_id"`
@@ -83,6 +120,12 @@ type Project struct {
 	Code      string `json:"code"`
 	Name      string `json:"name"`
 	StatusID  int64  `json:"status_id"`
+}
+
+type SeenMyTask struct {
+	TaskID       int64  `json:"task_id"`
+	FirstSeenAt  string `json:"first_seen_at"`
+	Acknowledged int64  `json:"acknowledged"`
 }
 
 type SeenTask struct {

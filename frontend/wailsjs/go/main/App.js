@@ -22,8 +22,20 @@ export function GetMonitor(arg1) {
   return window['go']['main']['App']['GetMonitor'](arg1);
 }
 
+export function GetMyTasksFilter() {
+  return window['go']['main']['App']['GetMyTasksFilter']();
+}
+
+export function GetMyTasksOptions() {
+  return window['go']['main']['App']['GetMyTasksOptions']();
+}
+
 export function GetSettings() {
   return window['go']['main']['App']['GetSettings']();
+}
+
+export function HideMyTask(arg1) {
+  return window['go']['main']['App']['HideMyTask'](arg1);
 }
 
 export function Info() {
@@ -32,6 +44,10 @@ export function Info() {
 
 export function ListMonitors() {
   return window['go']['main']['App']['ListMonitors']();
+}
+
+export function ListMyTasks() {
+  return window['go']['main']['App']['ListMyTasks']();
 }
 
 export function ListProjectMembers(arg1) {
@@ -44,6 +60,10 @@ export function ListSelectableProjects() {
 
 export function ListTasks() {
   return window['go']['main']['App']['ListTasks']();
+}
+
+export function MarkMyTasksSeen() {
+  return window['go']['main']['App']['MarkMyTasksSeen']();
 }
 
 export function MarkTasksSeen() {
@@ -62,12 +82,20 @@ export function RefreshMonitors() {
   return window['go']['main']['App']['RefreshMonitors']();
 }
 
+export function RefreshMyTasks() {
+  return window['go']['main']['App']['RefreshMyTasks']();
+}
+
 export function RefreshTasks() {
   return window['go']['main']['App']['RefreshTasks']();
 }
 
 export function SaveMonitor(arg1) {
   return window['go']['main']['App']['SaveMonitor'](arg1);
+}
+
+export function SaveMyTasksFilter(arg1) {
+  return window['go']['main']['App']['SaveMyTasksFilter'](arg1);
 }
 
 export function SaveSettings(arg1) {
@@ -84,4 +112,12 @@ export function SignIn(arg1, arg2) {
 
 export function SignOut() {
   return window['go']['main']['App']['SignOut']();
+}
+
+export function UnhideAllMyTasks() {
+  return window['go']['main']['App']['UnhideAllMyTasks']();
+}
+
+export function UnhideMyTask(arg1) {
+  return window['go']['main']['App']['UnhideMyTask'](arg1);
 }

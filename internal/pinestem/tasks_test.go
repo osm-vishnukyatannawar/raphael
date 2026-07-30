@@ -221,3 +221,135 @@ func TestListTasksSurfacesHTTPErrors(t *testing.T) {
 		t.Fatal("expected an error for HTTP 401")
 	}
 }
+
+// Captured from Projects/ProjectTaskStatuses, trimmed. The endpoint returns a
+// row per project, so the same status appears once per project that defines it —
+// note 1824 twice, for projects 851 and 782.
+const statusesBody = `{
+  "RecordCount": 4,
+  "MultipleResults": [
+    {"Id":1824,"Status":"1. Planned","ProjectID":851,"StatusColor":"#848482","IsDone":false,"IsActive":true},
+    {"Id":1824,"Status":"1. Planned","ProjectID":782,"StatusColor":"#848482","IsDone":false,"IsActive":true},
+    {"Id":4063,"Status":"3. In review","ProjectID":851,"StatusColor":"#e68fac","IsDone":false,"IsActive":true},
+    {"Id":1823,"Status":"9. Done","ProjectID":851,"StatusColor":"#0067a5","IsDone":true,"IsActive":true}
+  ],
+  "ResponseId": 5555, "ErrorMessage": "", "Status": false
+}`
+
+func TestListTaskStatuses(t *testing.T) {
+	t.Parallel()
+
+	var gotQuery url.Values
+
+	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.Query()
+		_, _ = io.WriteString(w, statusesBody)
+	})
+
+	statuses, err := client.ListTaskStatuses(t.Context(), "tok", 453, []string{"AMP", "RES"})
+	if err != nil {
+		t.Fatalf("ListTaskStatuses: %v", err)
+	}
+
+	if got := gotQuery["ProjectCode"]; strings.Join(got, ",") != "AMP,RES" {
+		t.Errorf("ProjectCode = %v, want [AMP RES]", got)
+	}
+	if got := gotQuery.Get("Status"); got != "1" {
+		t.Errorf("Status = %q, want 1", got)
+	}
+
+	// The duplicate 1824 must collapse: this list drives a checkbox picker, and
+	// the same status listed once per project would render it several times.
+	if len(statuses) != 3 {
+		t.Fatalf("got %d statuses, want 3 (deduped): %+v", len(statuses), statuses)
+	}
+	if statuses[0].ID != 1824 || statuses[0].Name != "1. Planned" {
+		t.Errorf("first status = %+v", statuses[0])
+	}
+	if statuses[0].Color != "#848482" {
+		t.Errorf("Color = %q", statuses[0].Color)
+	}
+	if statuses[2].ID != 1823 || !statuses[2].IsDone {
+		t.Errorf("done status = %+v, want 1823 with IsDone", statuses[2])
+	}
+	if statuses[1].IsDone {
+		t.Errorf("%+v should not be marked done", statuses[1])
+	}
+}
+
+func TestListTaskStatusesWithNoProjectsSkipsTheCall(t *testing.T) {
+	t.Parallel()
+
+	called := false
+	client := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+		_, _ = io.WriteString(w, statusesBody)
+	})
+
+	statuses, err := client.ListTaskStatuses(t.Context(), "tok", 453, nil)
+	if err != nil {
+		t.Fatalf("ListTaskStatuses: %v", err)
+	}
+	if called {
+		t.Error("the API was called despite there being no project codes")
+	}
+	if len(statuses) != 0 {
+		t.Errorf("got %d statuses, want 0", len(statuses))
+	}
+}
+
+// The my-tasks list asks for several statuses at once, which the API takes as a
+// repeated parameter exactly like ProjectCode.
+func TestListAssignedTasksSendsEveryStatus(t *testing.T) {
+	t.Parallel()
+
+	var gotQuery url.Values
+
+	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.Query()
+		_, _ = io.WriteString(w, tasksBody)
+	})
+
+	tasks, err := client.ListAssignedTasks(
+		t.Context(), "tok", 453, 2286, []string{"RES"}, []int64{1824, 1825, 4063},
+	)
+	if err != nil {
+		t.Fatalf("ListAssignedTasks: %v", err)
+	}
+
+	if got := gotQuery["TaskStatusID"]; strings.Join(got, ",") != "1824,1825,4063" {
+		t.Errorf("TaskStatusID = %v, want [1824 1825 4063]", got)
+	}
+	if got := gotQuery.Get("AssignedTo"); got != "2286" {
+		t.Errorf("AssignedTo = %q, want 2286", got)
+	}
+
+	// TaskStatusID comes back as a *string* on the task rows; it has to be
+	// usable as a number so the UI can group by status.
+	if len(tasks) != 2 || tasks[0].StatusID != 4063 {
+		t.Errorf("StatusID = %d, want 4063", tasks[0].StatusID)
+	}
+}
+
+// No statuses means no filter at all, which would return every status. The
+// caller asked for a specific set, so an empty one is nothing.
+func TestListAssignedTasksWithNoStatusesSkipsTheCall(t *testing.T) {
+	t.Parallel()
+
+	called := false
+	client := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+		_, _ = io.WriteString(w, tasksBody)
+	})
+
+	tasks, err := client.ListAssignedTasks(t.Context(), "tok", 453, 2286, []string{"RES"}, nil)
+	if err != nil {
+		t.Fatalf("ListAssignedTasks: %v", err)
+	}
+	if called {
+		t.Error("the API was called despite there being no statuses")
+	}
+	if len(tasks) != 0 {
+		t.Errorf("got %d tasks, want 0", len(tasks))
+	}
+}

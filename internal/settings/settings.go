@@ -20,6 +20,12 @@ const (
 	// queue other people push into.
 	DefaultBillingRefreshSeconds = 300
 
+	// DefaultMyTasksRefreshSeconds is the cadence for the wider assigned-task
+	// list. It has its own interval rather than sharing the review queue's:
+	// everything assigned to you turns over far more slowly than the subset
+	// actively waiting on your review.
+	DefaultMyTasksRefreshSeconds = 300
+
 	// MinRefreshSeconds is the floor for a non-zero interval. Anything shorter
 	// would hammer Pinestem for no practical gain.
 	MinRefreshSeconds = 15
@@ -47,16 +53,22 @@ const (
 type Settings struct {
 	RefreshIntervalSeconds        int64 `json:"refreshIntervalSeconds"`
 	BillingRefreshIntervalSeconds int64 `json:"billingRefreshIntervalSeconds"`
+	MyTasksRefreshIntervalSeconds int64 `json:"myTasksRefreshIntervalSeconds"`
 	// WeekStartDay is 0=Sunday … 6=Saturday, matching Go's time.Weekday.
 	WeekStartDay   int64 `json:"weekStartDay"`
 	NotifyNewTasks bool  `json:"notifyNewTasks"`
 	FocusOnNewTask bool  `json:"focusOnNewTask"`
+	// NotifyNewMyTasks alerts for the wider assigned list. There is deliberately
+	// no focus counterpart: a task landing in your backlog is worth a
+	// notification, not worth pulling the window over whatever you are doing.
+	NotifyNewMyTasks bool `json:"notifyNewMyTasks"`
 	// NotificationTimeoutSeconds is 0 for "until dismissed". Unlike the refresh
 	// intervals, 0 here does not mean "off".
 	NotificationTimeoutSeconds int64  `json:"notificationTimeoutSeconds"`
 	TasksSyncedAt              string `json:"tasksSyncedAt"`
 	BillingSyncedAt            string `json:"billingSyncedAt"`
 	MonitorsSyncedAt           string `json:"monitorsSyncedAt"`
+	MyTasksSyncedAt            string `json:"myTasksSyncedAt"`
 }
 
 // NotificationTimeout is the configured duration, and whether it should stay up
@@ -74,9 +86,11 @@ func Defaults() Settings {
 	return Settings{
 		RefreshIntervalSeconds:        DefaultRefreshSeconds,
 		BillingRefreshIntervalSeconds: DefaultBillingRefreshSeconds,
+		MyTasksRefreshIntervalSeconds: DefaultMyTasksRefreshSeconds,
 		WeekStartDay:                  DefaultWeekStartDay,
 		NotifyNewTasks:                true,
 		FocusOnNewTask:                true,
+		NotifyNewMyTasks:              true,
 		NotificationTimeoutSeconds:    DefaultNotificationSeconds,
 	}
 }
@@ -104,9 +118,11 @@ func (s *Service) Get(ctx context.Context) (*Settings, error) {
 	out := Settings{
 		RefreshIntervalSeconds:        row.RefreshIntervalSeconds,
 		BillingRefreshIntervalSeconds: row.BillingRefreshIntervalSeconds,
+		MyTasksRefreshIntervalSeconds: row.MyTasksRefreshIntervalSeconds,
 		WeekStartDay:                  row.WeekStartDay,
 		NotifyNewTasks:                row.NotifyNewTasks == 1,
 		FocusOnNewTask:                row.FocusOnNewTask == 1,
+		NotifyNewMyTasks:              row.NotifyNewMyTasks == 1,
 		NotificationTimeoutSeconds:    row.NotificationTimeoutSeconds,
 	}
 	if row.TasksSyncedAt != nil {
@@ -117,6 +133,9 @@ func (s *Service) Get(ctx context.Context) (*Settings, error) {
 	}
 	if row.MonitorsSyncedAt != nil {
 		out.MonitorsSyncedAt = *row.MonitorsSyncedAt
+	}
+	if row.MyTasksSyncedAt != nil {
+		out.MyTasksSyncedAt = *row.MyTasksSyncedAt
 	}
 
 	return &out, nil
@@ -134,9 +153,11 @@ func (s *Service) Save(ctx context.Context, in Settings) (*Settings, error) {
 	err := s.queries.SaveSettings(ctx, sqlc.SaveSettingsParams{
 		RefreshIntervalSeconds:        ClampInterval(in.RefreshIntervalSeconds),
 		BillingRefreshIntervalSeconds: ClampInterval(in.BillingRefreshIntervalSeconds),
+		MyTasksRefreshIntervalSeconds: ClampInterval(in.MyTasksRefreshIntervalSeconds),
 		WeekStartDay:                  ClampWeekStartDay(in.WeekStartDay),
 		NotifyNewTasks:                boolToInt(in.NotifyNewTasks),
 		FocusOnNewTask:                boolToInt(in.FocusOnNewTask),
+		NotifyNewMyTasks:              boolToInt(in.NotifyNewMyTasks),
 		NotificationTimeoutSeconds:    ClampNotificationTimeout(in.NotificationTimeoutSeconds),
 	})
 	if err != nil {
@@ -161,6 +182,16 @@ func (s *Service) MarkBillingSynced(ctx context.Context, at time.Time) error {
 	stamp := at.UTC().Format(time.RFC3339)
 	if err := s.queries.SetBillingSyncedAt(ctx, &stamp); err != nil {
 		return fmt.Errorf("settings: record billing sync time: %w", err)
+	}
+
+	return nil
+}
+
+// MarkMyTasksSynced records when the assigned-task cache was last refreshed.
+func (s *Service) MarkMyTasksSynced(ctx context.Context, at time.Time) error {
+	stamp := at.UTC().Format(time.RFC3339)
+	if err := s.queries.SetMyTasksSyncedAt(ctx, &stamp); err != nil {
+		return fmt.Errorf("settings: record my-task sync time: %w", err)
 	}
 
 	return nil

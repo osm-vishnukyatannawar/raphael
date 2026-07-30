@@ -48,6 +48,78 @@ func TestGetReturnsDefaultsOnFreshInstall(t *testing.T) {
 	if got.TasksSyncedAt != "" || got.BillingSyncedAt != "" {
 		t.Errorf("sync stamps = %q/%q, want empty", got.TasksSyncedAt, got.BillingSyncedAt)
 	}
+	// The assigned-task list has its own cadence and its own alert toggle; it
+	// must not inherit the review queue's.
+	if got.MyTasksRefreshIntervalSeconds != settings.DefaultMyTasksRefreshSeconds {
+		t.Errorf("my-tasks interval = %d, want %d",
+			got.MyTasksRefreshIntervalSeconds, settings.DefaultMyTasksRefreshSeconds)
+	}
+	if !got.NotifyNewMyTasks {
+		t.Error("NotifyNewMyTasks defaults off")
+	}
+	if got.MyTasksSyncedAt != "" {
+		t.Errorf("MyTasksSyncedAt = %q, want empty", got.MyTasksSyncedAt)
+	}
+}
+
+// The three intervals are independent: changing one must not move the others.
+func TestSaveKeepsIntervalsIndependent(t *testing.T) {
+	t.Parallel()
+
+	svc := newService(t)
+
+	stored, err := svc.Save(t.Context(), settings.Settings{
+		RefreshIntervalSeconds:        30,
+		BillingRefreshIntervalSeconds: 600,
+		MyTasksRefreshIntervalSeconds: 900,
+		WeekStartDay:                  int64(time.Monday),
+	})
+	if err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	if stored.RefreshIntervalSeconds != 30 ||
+		stored.BillingRefreshIntervalSeconds != 600 ||
+		stored.MyTasksRefreshIntervalSeconds != 900 {
+		t.Errorf("intervals = %d/%d/%d, want 30/600/900",
+			stored.RefreshIntervalSeconds,
+			stored.BillingRefreshIntervalSeconds,
+			stored.MyTasksRefreshIntervalSeconds)
+	}
+
+	// And the my-tasks interval takes the same floor as the other two.
+	clamped, err := svc.Save(t.Context(), settings.Settings{
+		MyTasksRefreshIntervalSeconds: 3,
+		WeekStartDay:                  int64(time.Monday),
+	})
+	if err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if clamped.MyTasksRefreshIntervalSeconds != settings.MinRefreshSeconds {
+		t.Errorf("my-tasks interval = %d, want the %ds floor",
+			clamped.MyTasksRefreshIntervalSeconds, settings.MinRefreshSeconds)
+	}
+}
+
+func TestMarkMyTasksSyncedIsSeparateFromTheOthers(t *testing.T) {
+	t.Parallel()
+
+	svc := newService(t)
+
+	if err := svc.MarkMyTasksSynced(t.Context(), time.Now()); err != nil {
+		t.Fatalf("MarkMyTasksSynced: %v", err)
+	}
+
+	got, err := svc.Get(t.Context())
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.MyTasksSyncedAt == "" {
+		t.Error("MyTasksSyncedAt was not recorded")
+	}
+	if got.TasksSyncedAt != "" || got.BillingSyncedAt != "" {
+		t.Errorf("other stamps moved: %q/%q", got.TasksSyncedAt, got.BillingSyncedAt)
+	}
 }
 
 // Clamping rather than rejecting: a mistyped interval should be corrected, and
@@ -144,6 +216,7 @@ func TestSaveRoundTripsToggles(t *testing.T) {
 		WeekStartDay:                  int64(time.Sunday),
 		NotifyNewTasks:                false,
 		FocusOnNewTask:                true,
+		NotifyNewMyTasks:              true,
 	}); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -157,6 +230,10 @@ func TestSaveRoundTripsToggles(t *testing.T) {
 	}
 	if !got.FocusOnNewTask {
 		t.Error("FocusOnNewTask did not persist as true")
+	}
+	// Independent of the review-queue toggle above, which is off here.
+	if !got.NotifyNewMyTasks {
+		t.Error("NotifyNewMyTasks did not persist as true")
 	}
 	if got.WeekStartDay != int64(time.Sunday) || got.BillingRefreshIntervalSeconds != 600 {
 		t.Errorf("round trip lost values: %+v", got)

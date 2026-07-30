@@ -3,9 +3,36 @@
 Cross-platform desktop app (Linux + Windows) built with [Wails v2](https://wails.io):
 a Go backend bound to a React + TypeScript frontend running in the OS webview.
 
-It signs in to Pinestem, shows the tasks waiting on your review, alerts you when a
-new one arrives, tracks the hours you've billed today and this week, and monitors
-monthly billing targets for a team across a group of projects.
+It signs in to Pinestem, shows the tasks waiting on your review alongside
+everything else assigned to you, alerts you when a new one arrives, tracks the
+hours you've billed today and this week, and monitors monthly billing targets for
+a team across a group of projects.
+
+## Install (Linux)
+
+One line, no sudo — the same command installs and updates:
+
+```sh
+wget -qO- https://raw.githubusercontent.com/osm-vishnukyatannawar/raphael/main/install.sh | bash
+```
+
+or with curl:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/osm-vishnukyatannawar/raphael/main/install.sh | bash
+```
+
+It resolves the latest release, verifies it against the published
+`SHA256SUMS.txt`, and installs the binary into `~/.local/bin` with the icon and
+`Raphael.desktop`. Re-running it updates in place and exits early when you are
+already on the latest version — `raphael --version` is what it compares against.
+`RAPHAEL_VERSION=v1.0.0` pins a specific tag; `RAPHAEL_FORCE=1` reinstalls anyway.
+
+WebKitGTK is the one dependency it cannot ship (see below); the script warns if
+it is missing rather than failing after the fact. Windows builds are on the
+[releases page](https://github.com/osm-vishnukyatannawar/raphael/releases).
+
+The rest of this file is about working on Raphael, not running it.
 
 ## Requirements
 
@@ -55,6 +82,7 @@ make dev     # hot-reloading app window
 
 ```
 main.go, app.go          Wails wiring. Exported App methods become TS bindings.
+install.sh               Network installer/updater — the README one-liner runs this
 internal/config/         Resolves ~/.config/raphael (%AppData%\raphael on Windows)
 internal/db/             SQLite connection + goose migrations (embedded)
   migrations/            Schema, applied on startup
@@ -64,10 +92,12 @@ internal/pinestem/       Pinestem REST client (auth, tasks, billing)
 internal/identity/       Onboarding state: display name + Pinestem session
 internal/secret/         OS keyring access
 internal/tasks/          In-review queue: cache, new-task detection, alert wording
+internal/mytasks/        Everything assigned to you: filters, hiding, its own alert
+internal/alerttext/      Shared notification-body formatting
 internal/billing/        Logged hours: per-day cache, week arithmetic
 internal/monitor/        Billing targets: monthly progress, pace, working days
 internal/settings/       Preferences (intervals, week start, alert toggles)
-internal/poller/         The two refresh loops — see "Refresh loops" below
+internal/poller/         The three refresh loops — see "Refresh loops" below
 internal/notify/         Desktop notifications + raising the window
 internal/ai/             AI integration seam (empty)
 frontend/src/            React app
@@ -126,20 +156,22 @@ by hand.
 
 ## Refresh loops
 
-Both refresh loops are **Go goroutines** (`internal/poller`), not `setInterval` in
+The refresh loops are **Go goroutines** (`internal/poller`), not `setInterval` in
 the frontend. WebKitGTK and Chromium both throttle timers in a hidden page —
 Chromium down to one wake per minute after five minutes — and the new-task alert
 exists precisely to reach you when the window *isn't* in front. The backend emits
-`tasks:updated` / `billing:updated`; the frontend subscribes.
+`tasks:updated`, `mytasks:updated` and `billing:updated`; the frontend subscribes.
 
-Tasks and billing have separate intervals (60s and 300s by default) and separate
-on-demand refresh buttons. `0` disables either one; anything under 15s is raised to
-15s. The target monitors ride the billing loop and emit `monitors:updated`.
+There are three loops with separate intervals — tasks (60s), my tasks (300s) and
+billing (300s) — each with its own on-demand refresh button. `0` disables any of
+them; anything under 15s is raised to 15s. The target monitors ride the billing
+loop and emit `monitors:updated`.
 
 ## Tasks in review
 
-The main screen lists the tasks assigned to you that are in "In review",
-newest-modified first. Rows open the task in your browser.
+The left-hand column of the dashboard lists the tasks assigned to you that are in
+"In review", newest-modified first. Rows open the task in your browser. The window
+starts maximised, because the dashboard is two columns wide.
 
 Two calls per refresh, in order:
 
@@ -219,6 +251,70 @@ sqlite3 ~/.config/raphael/raphael.db \
   'SELECT t.short_code, s.acknowledged FROM task t JOIN seen_task s USING (task_id);'
 ```
 
+## My tasks
+
+The right-hand column of the dashboard is everything assigned to you, not just
+what is waiting on your review — the two lists sit side by side because the point
+of the second one is to be visible at the same time as the first.
+
+**Ordered by due date, soonest first, undated last.** That is deliberately the
+opposite of the review queue's newest-modified order: this list is a backlog, and
+what is nearly due matters more than what someone touched five minutes ago.
+Overdue dates render in red, the same as everywhere else.
+
+Same endpoint as the review queue, `Tasks/Filter`, with `TaskStatusID` repeated
+once per status rather than pinned to `4063`. `ListReviewTasks` is now a one-line
+wrapper over `ListAssignedTasks`.
+
+### Filtering
+
+The **Filter** button picks projects and statuses. Both default to empty, which
+means *no* filter: every active project, and every status that is not the terminal
+"done" one. That default is what makes the list useful before anyone configures
+anything.
+
+Statuses come from `Projects/ProjectTaskStatuses`, which answers *per project* —
+a status shared by ten projects comes back ten times — so the rows are
+deduplicated by ID. Company 453 has 15 statuses, of which exactly one
+(`1823`, "9. Done") reports `IsDone`. Note the unfiltered list therefore still
+includes `2178` ("8. Stopped"); Pinestem's own web UI drops that one too, but
+nothing in the payload marks it as terminal, so narrowing it is a filter choice
+rather than something to hardcode.
+
+A configured filter costs **one** API call per refresh. An empty one costs three:
+the project list, the status list for those projects, then the tasks.
+
+### Hiding
+
+Any row can be hidden, which is how the perpetual tasks — a standing "Project
+Management" or "Scrum call" that is assigned to you forever — stay out of the way.
+
+Hiding is per task ID and **outlives the refresh cycle**: `hidden_my_task` is the
+one my-task table that is *not* swapped wholesale, because a task that briefly
+drops out of the filtered set must not come back unhidden. A hidden task never
+counts as new and never triggers a notification, even the first time it appears —
+that is what hiding means.
+
+The hide list stores the short code and name it had when hidden, so **"Show
+hidden" can still name and unhide a task the current filter no longer returns**.
+Without that, narrowing the filter would strand a hidden task with no way back.
+
+```sh
+sqlite3 ~/.config/raphael/raphael.db 'SELECT * FROM hidden_my_task;'
+```
+
+### Its own cadence and its own alert
+
+The refresh interval is separate from the review queue's (300s by default against
+60s) and set separately in the dialog — everything assigned to you turns over far
+more slowly than the subset actively waiting on you.
+
+New arrivals notify with their own wording ("assigned to you" rather than "for
+review") and their own `replaces_id`, so an assignment alert and a review alert
+do not overwrite each other. There is deliberately **no focus-the-window toggle
+here**: a task landing in your backlog is worth telling you about, not worth
+pulling the window over whatever you were doing.
+
 ## Billing hours
 
 Today and this week sit above the task list, with a seven-day breakdown and a lookup
@@ -275,9 +371,15 @@ differs for the same person in each company — `vishnu.k@osmosys.co` is 1187 at
 Amphenol, 2286 at Osmosys, 4928 at TalonPro. `pinestem_account.user_id` stores the
 right one, so it must never be swapped for an employee ID from elsewhere.
 
-**`TaskStatusID = 4063`** ("3. In review") is hardcoded in `internal/pinestem/tasks.go`.
-Pinestem exposes no status-lookup endpoint — four plausible paths all return 404 — so
-this is the single place to change if a company numbers statuses differently.
+**`TaskStatusID = 4063`** ("3. In review") is hardcoded in `internal/pinestem/tasks.go`
+for the review queue only. It is the one status that list is *about*, and looking it
+up would mean matching on a display string each project is free to rename, so this
+stays the single place to change if a company numbers statuses differently.
+
+The lookup does exist, though: `Projects/ProjectTaskStatuses?ProjectCode=…&Status=1`,
+found later than the four 404ing paths above (`Tasks/TaskStatusDropdown`,
+`Masters/TaskStatus`, `Tasks/StatusDropdown`, `Masters/TaskStatusDropdown`). The
+my-tasks filter reads the real set from it — see "My tasks" above.
 
 Tasks and projects are cached in SQLite and **replaced wholesale** on each refresh
 inside one transaction: a task leaving the queue must disappear, and a mid-refresh

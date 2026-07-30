@@ -3,6 +3,7 @@
 import {main} from '../models';
 import {billing} from '../models';
 import {monitor} from '../models';
+import {mytasks} from '../models';
 import {settings} from '../models';
 import {pinestem} from '../models';
 
@@ -16,17 +17,27 @@ export function GetBillingForDate(arg1:string):Promise<billing.DayTotal>;
 
 export function GetMonitor(arg1:number):Promise<monitor.Monitor>;
 
+export function GetMyTasksFilter():Promise<mytasks.Filter>;
+
+export function GetMyTasksOptions():Promise<mytasks.Options>;
+
 export function GetSettings():Promise<settings.Settings>;
+
+export function HideMyTask(arg1:number):Promise<void>;
 
 export function Info():Promise<main.AppInfo>;
 
 export function ListMonitors():Promise<main.MonitorsResult>;
+
+export function ListMyTasks():Promise<main.MyTasksResult>;
 
 export function ListProjectMembers(arg1:Array<string>):Promise<Array<pinestem.Member>>;
 
 export function ListSelectableProjects():Promise<Array<pinestem.Project>>;
 
 export function ListTasks():Promise<main.TasksResult>;
+
+export function MarkMyTasksSeen():Promise<void>;
 
 export function MarkTasksSeen():Promise<void>;
 
@@ -36,9 +47,13 @@ export function RefreshBilling():Promise<main.BillingResult>;
 
 export function RefreshMonitors():Promise<main.MonitorsResult>;
 
+export function RefreshMyTasks():Promise<main.MyTasksResult>;
+
 export function RefreshTasks():Promise<main.TasksResult>;
 
 export function SaveMonitor(arg1:monitor.Monitor):Promise<monitor.Monitor>;
+
+export function SaveMyTasksFilter(arg1:mytasks.Filter):Promise<mytasks.Filter>;
 
 export function SaveSettings(arg1:settings.Settings):Promise<settings.Settings>;
 
@@ -47,3 +62,7 @@ export function SetDisplayName(arg1:string):Promise<void>;
 export function SignIn(arg1:string,arg2:string):Promise<main.SignInResult>;
 
 export function SignOut():Promise<void>;
+
+export function UnhideAllMyTasks():Promise<void>;
+
+export function UnhideMyTask(arg1:number):Promise<void>;

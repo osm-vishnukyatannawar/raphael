@@ -161,17 +161,24 @@ jobs:
 
           ## Install
 
-          **Linux** — needs `webkit2gtk-4.1` and `gtk3` installed.
+          **Linux** — one line, no sudo. The same command updates an existing install.
+
+          ```sh
+          wget -qO- https://raw.githubusercontent.com/osm-vishnukyatannawar/raphael/main/install.sh | bash
+          ```
+
+          It needs `webkit2gtk-4.1` and `gtk3` present, resolves this release, verifies it
+          against `SHA256SUMS.txt`, and places the binary in `~/.local/bin` alongside the
+          icon and desktop entry. That entry matters: without it KDE shows a generic window
+          icon and cannot bring the window forward from a notification.
+
+          Prefer to do it by hand, or want this exact version rather than the latest:
 
           ```sh
           tar -xzf raphael-VERSION-linux-amd64.tar.gz
           cd raphael-VERSION-linux-amd64
           ./install.sh
           ```
-
-          The installer places the binary in `~/.local/bin` and registers the desktop entry.
-          That entry matters: without it KDE shows a generic window icon and cannot bring the
-          window forward from a notification.
 
           **Windows** — unzip and run `raphael.exe`. It is unsigned, so SmartScreen will warn
           on first launch.
