@@ -59,11 +59,19 @@ esac
 # but only warn, because distro package names vary and being wrong here should
 # not block an install that would have worked.
 if command -v ldconfig >/dev/null 2>&1; then
-  if ! ldconfig -p | grep -q 'libwebkit2gtk-4\.1'; then
+  # Matched with bash's own globbing rather than a pipe into grep -q. Under
+  # pipefail, grep -q exits at the first hit, SIGPIPEs whatever is feeding it,
+  # and the pipeline reports failure — which would report the library as missing
+  # precisely when it is present. No pipe, no trap.
+  LIBS=$(ldconfig -p 2>/dev/null || true)
+  case "$LIBS" in
+  *libwebkit2gtk-4.1*) ;;
+  *)
     warn "webkit2gtk-4.1 was not found. Raphael needs it to open a window:"
     warn "  Arch:   sudo pacman -S webkit2gtk-4.1 gtk3"
     warn "  Debian: sudo apt install libwebkit2gtk-4.1-0 libgtk-3-0"
-  fi
+    ;;
+  esac
 fi
 
 if [ -n "${RAPHAEL_VERSION:-}" ]; then
@@ -71,17 +79,33 @@ if [ -n "${RAPHAEL_VERSION:-}" ]; then
 else
   info "Looking up the latest release"
   # tag_name from the releases API, without requiring jq to be installed.
-  VERSION=$(fetch "https://api.github.com/repos/$REPO/releases/latest" |
-    grep -m1 '"tag_name"' | cut -d'"' -f4)
+  # sed reads its input to the end and bash takes the first line, rather than
+  # `| head -1` — see the pipefail note above.
+  LATEST=$(fetch "https://api.github.com/repos/$REPO/releases/latest") ||
+    die "could not reach the GitHub releases API"
+  TAGS=$(printf '%s\n' "$LATEST" |
+    sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+  VERSION=${TAGS%%$'\n'*}
 fi
 [ -n "$VERSION" ] || die "could not determine the latest version"
 
 INSTALLED=""
 if [ -x "$BIN_DIR/raphael" ]; then
   # --version prints and exits before any window is opened, so this is safe to
-  # call over SSH or on a machine with no display. Releases before this flag
-  # existed print nothing useful, which reads as "unknown" and reinstalls.
-  INSTALLED=$("$BIN_DIR/raphael" --version 2>/dev/null | head -n1 || true)
+  # call over SSH or on a machine with no display.
+  #
+  # Bounded by `timeout`, because releases before v1.1.0 have no such flag and
+  # treat it as a normal launch: probing one of those opens the actual app
+  # window and blocks here forever. Five seconds is far longer than printing a
+  # string takes and short enough not to strand the update. A binary that has to
+  # be killed reports nothing, reads as "unknown", and gets replaced — which is
+  # the right outcome for a version that old anyway.
+  if command -v timeout >/dev/null 2>&1; then
+    REPORTED=$(timeout 5 "$BIN_DIR/raphael" --version 2>/dev/null || true)
+  else
+    REPORTED=$("$BIN_DIR/raphael" --version 2>/dev/null || true)
+  fi
+  INSTALLED=${REPORTED%%$'\n'*}
 fi
 
 if [ -n "$INSTALLED" ] && [ "$INSTALLED" = "$VERSION" ] && [ -z "${RAPHAEL_FORCE:-}" ]; then
