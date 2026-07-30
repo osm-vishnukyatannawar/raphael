@@ -3,9 +3,8 @@
 Cross-platform desktop app (Linux + Windows) built with [Wails v2](https://wails.io):
 a Go backend bound to a React + TypeScript frontend running in the OS webview.
 
-**Status: scaffold.** Tooling, structure, linting, and CI are in place. There is no
-schema, no API client, and no real UI yet — the window renders a placeholder that
-exercises the Go → TypeScript → Tailwind → shadcn pipeline end to end.
+It signs in to Pinestem, shows the tasks waiting on your review, alerts you when a
+new one arrives, and tracks the hours you've billed today and this week.
 
 ## Requirements
 
@@ -60,9 +59,15 @@ internal/db/             SQLite connection + goose migrations (embedded)
   migrations/            Schema, applied on startup
   queries/               sqlc input
   sqlc/                  sqlc output — generated, do not edit
-internal/api/            Remote REST client
-internal/sync/           Background sync engine
-internal/ai/             AI integration seam
+internal/pinestem/       Pinestem REST client (auth, tasks, billing)
+internal/identity/       Onboarding state: display name + Pinestem session
+internal/secret/         OS keyring access
+internal/tasks/          In-review queue: cache, new-task detection, alert wording
+internal/billing/        Logged hours: per-day cache, week arithmetic
+internal/settings/       Preferences (intervals, week start, alert toggles)
+internal/poller/         The two refresh loops — see "Refresh loops" below
+internal/notify/         Desktop notifications + raising the window
+internal/ai/             AI integration seam (empty)
 frontend/src/            React app
   components/ui/         shadcn components (vendored, owned by us)
 frontend/wailsjs/        Generated Go bindings — committed, see note below
@@ -102,7 +107,9 @@ Inspect what's stored:
 
 ```sh
 sqlite3 ~/.config/raphael/raphael.db 'SELECT * FROM pinestem_account;'
-secret-tool search --all service raphael
+# Presence only. Do NOT use `secret-tool search --all` here — it prints the
+# secret values themselves straight to your terminal and scrollback.
+secret-tool lookup service raphael key pinestem-token >/dev/null && echo "token stored"
 ```
 
 **Detecting a failed login is not obvious.** Pinestem returns HTTP **200** for a
@@ -115,12 +122,22 @@ Authenticated calls need two headers, `AuthenticationToken` and `CompanyID`, whi
 why both are persisted. Use `Client.NewAuthenticatedRequest` rather than setting them
 by hand.
 
+## Refresh loops
+
+Both refresh loops are **Go goroutines** (`internal/poller`), not `setInterval` in
+the frontend. WebKitGTK and Chromium both throttle timers in a hidden page —
+Chromium down to one wake per minute after five minutes — and the new-task alert
+exists precisely to reach you when the window *isn't* in front. The backend emits
+`tasks:updated` / `billing:updated`; the frontend subscribes.
+
+Tasks and billing have separate intervals (60s and 300s by default) and separate
+on-demand refresh buttons. `0` disables either one; anything under 15s is raised to
+15s.
+
 ## Tasks in review
 
 The main screen lists the tasks assigned to you that are in "In review",
-newest-modified first. Rows open the task in your browser. Auto-refresh defaults to
-60s and is configurable via the gear icon (`0` disables it); there is also a manual
-refresh button.
+newest-modified first. Rows open the task in your browser.
 
 Two calls per refresh, in order:
 
@@ -128,6 +145,77 @@ Two calls per refresh, in order:
 2. `GET Tasks/Filter` with one repeated `ProjectCode` per project
 
 Projects are fetched live rather than hardcoded because they get added and removed.
+
+### New-task alerts
+
+A task that wasn't in the queue on the previous refresh triggers a desktop
+notification and pulls the window forward, each toggleable in settings. The row stays
+highlighted until you open it or press "Mark all seen".
+
+Notifications use the **Wails v2.13 runtime** (`runtime.SendNotification`) — D-Bus on
+Linux, toast on Windows. No third-party notification dependency.
+
+Raising the window sets always-on-top for ~120ms and then clears it. That looks odd
+but is deliberate: a plain `WindowShow` is downgraded to a taskbar flash by most
+window managers' focus-stealing prevention. KDE on Wayland may refuse anyway — the
+compositor has the final say, same as with the window icon.
+
+"Which tasks are new" is `task` minus `seen_task`, so it survives restarts.
+`seen_task` is rebuilt on every refresh alongside the task cache, which means a task
+that leaves review and later returns alerts again — deliberate, it needs another look.
+
+**Migration 00004 seeds `seen_task` from whatever is already cached.** Without that,
+upgrading an install with an existing task cache makes every open review look new at
+once: a notification per task and the window yanked forward on first launch. Verified
+against a real pre-upgrade database, not assumed.
+
+```sh
+sqlite3 ~/.config/raphael/raphael.db \
+  'SELECT t.short_code, s.acknowledged FROM task t JOIN seen_task s USING (task_id);'
+```
+
+## Billing hours
+
+Today and this week sit above the task list, with a seven-day breakdown and a lookup
+for any single date behind the chevron.
+
+**One call per refresh:** `POST Reports/FilterBillingDetails_New?isGetAllProjects=true`.
+It returns per-entry rows, and `internal/billing` aggregates them per day. Summing
+them reproduces `Reports/GetBillingTotalHours` exactly (verified: 2160 minutes for
+2026-07-27…30), so the totals endpoint is not called at all.
+
+Three things that are easy to get wrong here, all confirmed live:
+
+- **`EmpID` is the user filter, and it is mandatory in practice.** Omit it and the
+  endpoint returns *the whole team* — one project for one week came back as 56.08h
+  rather than the caller's own hours. `UserIds`, `MemberIds`, `UserID`, `AssignedTo`,
+  `EmployeeIds` and four other plausible names are all silently ignored, returning the
+  unfiltered figure with no error. The name came from reading Pinestem's own Angular
+  bundle. `EmpID` is a parameter rather than "the logged-in user" so reporting on a
+  colleague later needs no signature change.
+- **`BillableHours` and `NonBillableHours` are integer minutes**, despite the names —
+  `300` renders as `"5"` in `BillableHours_HoursFormat`. They stay minutes all the way
+  to the UI; 0.1h has no exact binary float representation.
+- **Per-row `TotalHours` is always `0`.** The row total is billable + non-billable.
+
+`ProjectIds` is optional; omitting it covers every project, so billing needs no
+project list. `Reports/FilterDailyBillingDetails` appears in the bundle but 404s, and
+`FilterBillingDetails_New` rejects GET.
+
+The fetch window is the configured week stretched back to include yesterday — on the
+first day of the week, yesterday is in the *previous* one, and without that the
+"Yesterday" figure would silently read zero. Week start is configurable (default
+Monday, ISO-8601).
+
+**Day boundaries are computed in the OS local zone, not the account's.** Pinestem
+stores `TimeZone` as a *Windows* identifier (`"India Standard Time"`), which Go's
+`time.LoadLocation` cannot resolve — it wants IANA names like `Asia/Kolkata`. The
+string is still forwarded in the request body, where the Windows form is what the API
+expects.
+
+```sh
+sqlite3 ~/.config/raphael/raphael.db 'SELECT * FROM billing_day ORDER BY day;'
+```
 
 **`AssignedTo` is per-company.** It takes the `UserId` from the auth response, which
 differs for the same person in each company — `vishnu.k@osmosys.co` is 1187 at

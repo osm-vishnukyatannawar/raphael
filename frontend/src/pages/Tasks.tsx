@@ -1,6 +1,7 @@
 import {
   AlertTriangle,
   Building2,
+  Check,
   ExternalLink,
   LogOut,
   RefreshCw,
@@ -8,9 +9,11 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import BillingBar from '@/components/BillingBar'
 import SettingsDialog from '@/components/SettingsDialog'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
@@ -21,18 +24,26 @@ import {
   relativeTime,
 } from '@/lib/time'
 import {
+  GetBilling,
   GetSettings,
   ListTasks,
+  MarkTasksSeen,
   OpenTask,
+  RefreshBilling,
   RefreshTasks,
   SignOut,
 } from '@wails/go/main/App'
 import {
   type identity,
-  type main,
+  main,
   type settings,
   type tasks,
 } from '@wails/go/models'
+import { EventsOff, EventsOn } from '@wails/runtime/runtime'
+
+/** Emitted by the Go pollers — see internal/poller for why they live there. */
+const EVENT_TASKS = 'tasks:updated'
+const EVENT_BILLING = 'billing:updated'
 
 type Props = {
   session: identity.Session
@@ -57,58 +68,111 @@ function initials(name: string): string {
 
 export default function Tasks({ session, onSignedOut }: Props) {
   const [result, setResult] = useState<main.TasksResult | null>(null)
+  const [billing, setBilling] = useState<main.BillingResult | null>(null)
   const [prefs, setPrefs] = useState<settings.Settings | null>(null)
   const [refreshing, setRefreshing] = useState(false)
+  const [refreshingBilling, setRefreshingBilling] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
 
-  // Held in a ref so the interval effect doesn't need `refreshing` as a
-  // dependency — that would tear down and re-arm the timer on every refresh.
-  const inFlight = useRef(false)
+  // Held in refs so a manual refresh can't stack on top of itself, without
+  // making the callbacks depend on the spinner state.
+  const tasksInFlight = useRef(false)
+  const billingInFlight = useRef(false)
 
   const refresh = useCallback(async () => {
-    if (inFlight.current) return
-    inFlight.current = true
+    if (tasksInFlight.current) return
+    tasksInFlight.current = true
     setRefreshing(true)
     try {
       setResult(await RefreshTasks())
     } finally {
-      inFlight.current = false
+      tasksInFlight.current = false
       setRefreshing(false)
     }
   }, [])
 
-  // First paint: cached rows immediately (no network), then a live refresh.
+  const refreshBilling = useCallback(async () => {
+    if (billingInFlight.current) return
+    billingInFlight.current = true
+    setRefreshingBilling(true)
+    try {
+      setBilling(await RefreshBilling())
+    } finally {
+      billingInFlight.current = false
+      setRefreshingBilling(false)
+    }
+  }, [])
+
+  // First paint: cached rows immediately, no network. The Go pollers fire their
+  // own refresh on startup, and the results arrive as events below.
   useEffect(() => {
     let cancelled = false
 
     void (async () => {
-      const [cached, loadedPrefs] = await Promise.all([
+      const [cachedTasks, cachedBilling, loadedPrefs] = await Promise.all([
         ListTasks(),
+        GetBilling(),
         GetSettings(),
       ])
       if (cancelled) return
-      setResult(cached)
+      setResult(cachedTasks)
+      setBilling(cachedBilling)
       setPrefs(loadedPrefs)
-      void refresh()
     })()
 
     return () => {
       cancelled = true
     }
-  }, [refresh])
+  }, [])
 
-  // Auto-refresh. Re-armed whenever the interval changes; 0 disables it.
+  // Backend-driven refreshes. There is no setInterval here on purpose: a hidden
+  // page has its timers throttled, and the new-task alert has to work when this
+  // window is not in front.
   useEffect(() => {
-    const seconds = prefs?.refreshIntervalSeconds ?? 0
-    if (seconds <= 0) return
+    EventsOn(EVENT_TASKS, (payload: main.TasksResult) => setResult(payload))
+    EventsOn(EVENT_BILLING, (payload: main.BillingResult) =>
+      setBilling(payload)
+    )
 
-    const id = setInterval(() => void refresh(), seconds * 1000)
-
-    return () => clearInterval(id)
-  }, [prefs?.refreshIntervalSeconds, refresh])
+    return () => {
+      EventsOff(EVENT_TASKS)
+      EventsOff(EVENT_BILLING)
+    }
+  }, [])
 
   const list = result?.tasks ?? []
   const loading = result === null
+  const newCount = list.filter((task) => task.isNew).length
+
+  async function markSeen() {
+    await MarkTasksSeen()
+    // createFrom rather than a spread: the generated classes carry a
+    // convertValues method, so a plain object literal is not a TasksResult.
+    setResult((prev) =>
+      prev
+        ? main.TasksResult.createFrom({
+            ...prev,
+            tasks: prev.tasks.map((task) => ({ ...task, isNew: false })),
+          })
+        : prev
+    )
+  }
+
+  function open(task: tasks.Task) {
+    void OpenTask(task.taskId, task.shortCode)
+    // Opening a task is what "seen" means; clear it here too so the highlight
+    // goes immediately rather than at the next refresh.
+    setResult((prev) =>
+      prev
+        ? main.TasksResult.createFrom({
+            ...prev,
+            tasks: prev.tasks.map((t) =>
+              t.taskId === task.taskId ? { ...t, isNew: false } : t
+            ),
+          })
+        : prev
+    )
+  }
 
   return (
     <div className="flex h-full flex-col">
@@ -151,10 +215,17 @@ export default function Tasks({ session, onSignedOut }: Props) {
       </header>
 
       <main className="mx-auto w-full max-w-3xl flex-1 overflow-y-auto p-6">
+        <BillingBar
+          result={billing}
+          refreshing={refreshingBilling}
+          onRefresh={() => void refreshBilling()}
+        />
+
         <div className="mb-4 flex items-end justify-between">
           <div>
-            <h1 className="text-lg font-medium">
+            <h1 className="flex items-center gap-2 text-lg font-medium">
               In review{!loading && ` (${list.length})`}
+              {newCount > 0 && <Badge>{newCount} new</Badge>}
             </h1>
             <p className="text-muted-foreground text-xs">
               {result?.syncedAt
@@ -166,17 +237,26 @@ export default function Tasks({ session, onSignedOut }: Props) {
             </p>
           </div>
 
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={refreshing}
-            onClick={() => void refresh()}
-          >
-            <RefreshCw
-              className={`size-4 ${refreshing ? 'animate-spin' : ''}`}
-            />
-            Refresh
-          </Button>
+          <div className="flex items-center gap-2">
+            {/* Only offered when there is something to clear. */}
+            {newCount > 0 && (
+              <Button variant="ghost" size="sm" onClick={() => void markSeen()}>
+                <Check className="size-4" />
+                Mark all seen
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={refreshing}
+              onClick={() => void refresh()}
+            >
+              <RefreshCw
+                className={`size-4 ${refreshing ? 'animate-spin' : ''}`}
+              />
+              Refresh
+            </Button>
+          </div>
         </div>
 
         {/* A failed refresh warns without discarding the cached rows below. */}
@@ -204,7 +284,7 @@ export default function Tasks({ session, onSignedOut }: Props) {
         ) : (
           <ul className="divide-y rounded-lg border">
             {list.map((task) => (
-              <TaskRow key={task.taskId} task={task} />
+              <TaskRow key={task.taskId} task={task} onOpen={open} />
             ))}
           </ul>
         )}
@@ -222,7 +302,13 @@ export default function Tasks({ session, onSignedOut }: Props) {
   )
 }
 
-function TaskRow({ task }: { task: tasks.Task }) {
+function TaskRow({
+  task,
+  onOpen,
+}: {
+  task: tasks.Task
+  onOpen: (task: tasks.Task) => void
+}) {
   const due = parsePinestemDate(task.dueDate)
   const modified = parsePinestemDate(task.modifiedOn)
   const overdue = isOverdue(due)
@@ -231,8 +317,12 @@ function TaskRow({ task }: { task: tasks.Task }) {
     <li>
       <button
         type="button"
-        onClick={() => void OpenTask(task.shortCode)}
-        className="hover:bg-accent/50 group flex w-full items-start gap-3 px-4 py-3 text-left transition-colors"
+        onClick={() => onOpen(task)}
+        className={`group flex w-full items-start gap-3 border-l-2 px-4 py-3 text-left transition-colors ${
+          task.isNew
+            ? 'border-l-primary bg-primary/5 hover:bg-primary/10'
+            : 'hover:bg-accent/50 border-l-transparent'
+        }`}
       >
         <span
           aria-hidden
@@ -253,6 +343,11 @@ function TaskRow({ task }: { task: tasks.Task }) {
               {task.shortCode}
             </span>
             <span className="truncate text-sm">{task.name}</span>
+            {task.isNew && (
+              <Badge variant="default" className="shrink-0 text-[10px]">
+                New
+              </Badge>
+            )}
           </div>
 
           <p className="text-muted-foreground mt-1 text-xs">

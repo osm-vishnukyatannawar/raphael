@@ -3,6 +3,7 @@ package settings_test
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/osm-vishnukyatannawar/raphael/internal/db"
 	"github.com/osm-vishnukyatannawar/raphael/internal/settings"
@@ -30,14 +31,28 @@ func TestGetReturnsDefaultsOnFreshInstall(t *testing.T) {
 	if got.RefreshIntervalSeconds != settings.DefaultRefreshSeconds {
 		t.Errorf("interval = %d, want %d", got.RefreshIntervalSeconds, settings.DefaultRefreshSeconds)
 	}
-	if got.TasksSyncedAt != "" {
-		t.Errorf("TasksSyncedAt = %q, want empty", got.TasksSyncedAt)
+	if got.BillingRefreshIntervalSeconds != settings.DefaultBillingRefreshSeconds {
+		t.Errorf("billing interval = %d, want %d",
+			got.BillingRefreshIntervalSeconds, settings.DefaultBillingRefreshSeconds)
+	}
+	// Monday: ISO-8601, and the chosen default.
+	if got.WeekStartDay != int64(time.Monday) {
+		t.Errorf("WeekStartDay = %d, want %d (Monday)", got.WeekStartDay, time.Monday)
+	}
+	// Alerts default on — an assistant that stays silent until configured is
+	// indistinguishable from a broken one.
+	if !got.NotifyNewTasks || !got.FocusOnNewTask {
+		t.Errorf("alert defaults = notify:%v focus:%v, want both true",
+			got.NotifyNewTasks, got.FocusOnNewTask)
+	}
+	if got.TasksSyncedAt != "" || got.BillingSyncedAt != "" {
+		t.Errorf("sync stamps = %q/%q, want empty", got.TasksSyncedAt, got.BillingSyncedAt)
 	}
 }
 
 // Clamping rather than rejecting: a mistyped interval should be corrected, and
 // the caller told what was actually stored, not handed an error.
-func TestSetRefreshIntervalClamps(t *testing.T) {
+func TestSaveClampsIntervals(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -59,12 +74,23 @@ func TestSetRefreshIntervalClamps(t *testing.T) {
 
 			svc := newService(t)
 
-			stored, err := svc.SetRefreshInterval(t.Context(), tc.in)
+			stored, err := svc.Save(t.Context(), settings.Settings{
+				RefreshIntervalSeconds:        tc.in,
+				BillingRefreshIntervalSeconds: tc.in,
+				WeekStartDay:                  int64(time.Monday),
+			})
 			if err != nil {
-				t.Fatalf("SetRefreshInterval: %v", err)
+				t.Fatalf("Save: %v", err)
 			}
-			if stored != tc.want {
-				t.Errorf("returned %d, want %d", stored, tc.want)
+			if stored.RefreshIntervalSeconds != tc.want {
+				t.Errorf("tasks interval returned %d, want %d",
+					stored.RefreshIntervalSeconds, tc.want)
+			}
+			// Both intervals share the floor; they are independent values, not
+			// independent rules.
+			if stored.BillingRefreshIntervalSeconds != tc.want {
+				t.Errorf("billing interval returned %d, want %d",
+					stored.BillingRefreshIntervalSeconds, tc.want)
 			}
 
 			got, err := svc.Get(t.Context())
@@ -75,5 +101,92 @@ func TestSetRefreshIntervalClamps(t *testing.T) {
 				t.Errorf("persisted %d, want %d", got.RefreshIntervalSeconds, tc.want)
 			}
 		})
+	}
+}
+
+// An out-of-range weekday would make WeekBounds produce a nonsense window, so it
+// is corrected to the default rather than stored.
+func TestSaveClampsWeekStartDay(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		in, want int64
+	}{
+		{-1, int64(time.Monday)},
+		{7, int64(time.Monday)},
+		{99, int64(time.Monday)},
+		{0, int64(time.Sunday)},
+		{6, int64(time.Saturday)},
+		{3, int64(time.Wednesday)},
+	}
+
+	for _, tc := range cases {
+		svc := newService(t)
+
+		stored, err := svc.Save(t.Context(), settings.Settings{WeekStartDay: tc.in})
+		if err != nil {
+			t.Fatalf("Save(%d): %v", tc.in, err)
+		}
+		if stored.WeekStartDay != tc.want {
+			t.Errorf("WeekStartDay(%d) = %d, want %d", tc.in, stored.WeekStartDay, tc.want)
+		}
+	}
+}
+
+func TestSaveRoundTripsToggles(t *testing.T) {
+	t.Parallel()
+
+	svc := newService(t)
+
+	if _, err := svc.Save(t.Context(), settings.Settings{
+		RefreshIntervalSeconds:        90,
+		BillingRefreshIntervalSeconds: 600,
+		WeekStartDay:                  int64(time.Sunday),
+		NotifyNewTasks:                false,
+		FocusOnNewTask:                true,
+	}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	got, err := svc.Get(t.Context())
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.NotifyNewTasks {
+		t.Error("NotifyNewTasks did not persist as false")
+	}
+	if !got.FocusOnNewTask {
+		t.Error("FocusOnNewTask did not persist as true")
+	}
+	if got.WeekStartDay != int64(time.Sunday) || got.BillingRefreshIntervalSeconds != 600 {
+		t.Errorf("round trip lost values: %+v", got)
+	}
+}
+
+// Saving settings must not rewind the sync stamps — they are written by the
+// refresh path and share the same single row.
+func TestSaveDoesNotClearSyncStamps(t *testing.T) {
+	t.Parallel()
+
+	svc := newService(t)
+	at := time.Date(2026, 7, 30, 9, 0, 0, 0, time.UTC)
+
+	if err := svc.MarkTasksSynced(t.Context(), at); err != nil {
+		t.Fatalf("MarkTasksSynced: %v", err)
+	}
+	if err := svc.MarkBillingSynced(t.Context(), at); err != nil {
+		t.Fatalf("MarkBillingSynced: %v", err)
+	}
+
+	if _, err := svc.Save(t.Context(), settings.Settings{RefreshIntervalSeconds: 45}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	got, err := svc.Get(t.Context())
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.TasksSyncedAt == "" || got.BillingSyncedAt == "" {
+		t.Errorf("sync stamps cleared by a settings save: %+v", got)
 	}
 }

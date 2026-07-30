@@ -156,13 +156,13 @@ func TestRefreshCachesNewestModifiedFirst(t *testing.T) {
 
 	want := []string{"REST-2408", "REST-2402", "REST-2397"}
 	for i, code := range want {
-		if got[i].ShortCode != code {
-			t.Errorf("position %d = %s, want %s", i, got[i].ShortCode, code)
+		if got.Tasks[i].ShortCode != code {
+			t.Errorf("position %d = %s, want %s", i, got.Tasks[i].ShortCode, code)
 		}
 	}
 
-	if got[0].StatusColor != "#e68fac" || got[0].CompetencyName != "Angular" {
-		t.Errorf("metadata lost through the cache: %+v", got[0])
+	if got.Tasks[0].StatusColor != "#e68fac" || got.Tasks[0].CompetencyName != "Angular" {
+		t.Errorf("metadata lost through the cache: %+v", got.Tasks[0])
 	}
 }
 
@@ -184,8 +184,8 @@ func TestRefreshDropsTasksThatLeftTheQueue(t *testing.T) {
 		t.Fatalf("second Refresh: %v", err)
 	}
 
-	if len(got) != 1 || got[0].ShortCode != "REST-2408" {
-		t.Errorf("got %d tasks (%+v), want only REST-2408", len(got), got)
+	if len(got.Tasks) != 1 || got.Tasks[0].ShortCode != "REST-2408" {
+		t.Errorf("got %d tasks (%+v), want only REST-2408", len(got.Tasks), got.Tasks)
 	}
 }
 
@@ -245,5 +245,166 @@ func TestRefreshRecordsSyncTime(t *testing.T) {
 	if after.RefreshIntervalSeconds != settings.DefaultRefreshSeconds {
 		t.Errorf("interval = %d, want the %d default",
 			after.RefreshIntervalSeconds, settings.DefaultRefreshSeconds)
+	}
+}
+
+// A fresh install must not fire an alert per open review. The first sync seeds
+// the seen-task table silently.
+func TestFirstRefreshSeedsWithoutReportingNewTasks(t *testing.T) {
+	t.Parallel()
+
+	projects, list := sample()
+	svc, _ := newService(t, &stubFetcher{projects: projects, tasks: list})
+
+	got, err := svc.Refresh(t.Context())
+	if err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+
+	if len(got.New) != 0 {
+		t.Errorf("first refresh reported %d new tasks, want 0", len(got.New))
+	}
+	for _, task := range got.Tasks {
+		if task.IsNew {
+			t.Errorf("%s highlighted on the very first sync", task.ShortCode)
+		}
+	}
+}
+
+func TestSecondRefreshReportsOnlyGenuinelyNewTasks(t *testing.T) {
+	t.Parallel()
+
+	projects, list := sample()
+	fetcher := &stubFetcher{projects: projects, tasks: list}
+	svc, _ := newService(t, fetcher)
+
+	if _, err := svc.Refresh(t.Context()); err != nil {
+		t.Fatalf("seed Refresh: %v", err)
+	}
+
+	arrival := pinestem.Task{
+		TaskID: 110999, ShortCode: "REST-2410", Name: "Newly assigned for review",
+		ProjectCode: "RES", ProjectName: "Research and Development",
+		ModifiedOn: "2026-07-30 09:15:00",
+	}
+	fetcher.tasks = append([]pinestem.Task{arrival}, list...)
+
+	got, err := svc.Refresh(t.Context())
+	if err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+
+	if len(got.New) != 1 || got.New[0].ShortCode != "REST-2410" {
+		t.Fatalf("new = %+v, want only REST-2410", got.New)
+	}
+	for _, task := range got.Tasks {
+		wantNew := task.ShortCode == "REST-2410"
+		if task.IsNew != wantNew {
+			t.Errorf("%s IsNew = %v, want %v", task.ShortCode, task.IsNew, wantNew)
+		}
+	}
+}
+
+// The highlight is the whole point of persisting acknowledgement: it has to
+// survive both a refresh and a restart, so it lives in SQLite rather than state.
+func TestAcknowledgeSurvivesRefresh(t *testing.T) {
+	t.Parallel()
+
+	projects, list := sample()
+	fetcher := &stubFetcher{projects: projects, tasks: list}
+	svc, _ := newService(t, fetcher)
+
+	if _, err := svc.Refresh(t.Context()); err != nil {
+		t.Fatalf("seed Refresh: %v", err)
+	}
+
+	arrival := pinestem.Task{
+		TaskID: 110999, ShortCode: "REST-2410", Name: "Newly assigned",
+		ProjectCode: "RES", ModifiedOn: "2026-07-30 09:15:00",
+	}
+	fetcher.tasks = append([]pinestem.Task{arrival}, list...)
+	if _, err := svc.Refresh(t.Context()); err != nil {
+		t.Fatalf("second Refresh: %v", err)
+	}
+
+	if err := svc.Acknowledge(t.Context(), 110999); err != nil {
+		t.Fatalf("Acknowledge: %v", err)
+	}
+
+	got, err := svc.Refresh(t.Context())
+	if err != nil {
+		t.Fatalf("third Refresh: %v", err)
+	}
+	if len(got.New) != 0 {
+		t.Errorf("an acknowledged task was reported new again: %+v", got.New)
+	}
+	for _, task := range got.Tasks {
+		if task.IsNew {
+			t.Errorf("%s still highlighted after being acknowledged", task.ShortCode)
+		}
+	}
+}
+
+func TestAcknowledgeAllClearsEveryHighlight(t *testing.T) {
+	t.Parallel()
+
+	projects, list := sample()
+	fetcher := &stubFetcher{projects: projects, tasks: list[:1]}
+	svc, _ := newService(t, fetcher)
+
+	if _, err := svc.Refresh(t.Context()); err != nil {
+		t.Fatalf("seed Refresh: %v", err)
+	}
+
+	fetcher.tasks = list // two arrivals
+	got, err := svc.Refresh(t.Context())
+	if err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	if len(got.New) != 2 {
+		t.Fatalf("got %d new tasks, want 2", len(got.New))
+	}
+
+	if err := svc.AcknowledgeAll(t.Context()); err != nil {
+		t.Fatalf("AcknowledgeAll: %v", err)
+	}
+
+	cached, err := svc.Cached(t.Context())
+	if err != nil {
+		t.Fatalf("Cached: %v", err)
+	}
+	for _, task := range cached {
+		if task.IsNew {
+			t.Errorf("%s still highlighted after AcknowledgeAll", task.ShortCode)
+		}
+	}
+}
+
+// A task that leaves review and comes back is news again — it needs a second
+// look, and silently treating it as already-seen would hide that.
+func TestTaskReturningToTheQueueIsNewAgain(t *testing.T) {
+	t.Parallel()
+
+	projects, list := sample()
+	fetcher := &stubFetcher{projects: projects, tasks: list}
+	svc, _ := newService(t, fetcher)
+
+	if _, err := svc.Refresh(t.Context()); err != nil {
+		t.Fatalf("seed Refresh: %v", err)
+	}
+
+	fetcher.tasks = list[1:] // REST-2408 leaves review
+	if _, err := svc.Refresh(t.Context()); err != nil {
+		t.Fatalf("second Refresh: %v", err)
+	}
+
+	fetcher.tasks = list // and comes back
+	got, err := svc.Refresh(t.Context())
+	if err != nil {
+		t.Fatalf("third Refresh: %v", err)
+	}
+
+	if len(got.New) != 1 || got.New[0].ShortCode != "REST-2408" {
+		t.Errorf("new = %+v, want REST-2408 to alert again", got.New)
 	}
 }

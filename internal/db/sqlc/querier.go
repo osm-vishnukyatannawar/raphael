@@ -9,22 +9,34 @@ import (
 )
 
 type Querier interface {
+	AcknowledgeAllTasks(ctx context.Context) error
+	AcknowledgeTask(ctx context.Context, taskID int64) error
+	DeleteAllBillingDays(ctx context.Context) error
 	DeleteAllProjects(ctx context.Context) error
+	DeleteAllSeenTasks(ctx context.Context) error
 	DeleteAllTasks(ctx context.Context) error
 	DeletePinestemAccount(ctx context.Context) error
 	DeleteProfile(ctx context.Context) error
 	GetPinestemAccount(ctx context.Context) (PinestemAccount, error)
 	GetProfile(ctx context.Context) (AppProfile, error)
 	GetSettings(ctx context.Context) (AppSetting, error)
+	InsertBillingDay(ctx context.Context, arg InsertBillingDayParams) error
 	InsertProject(ctx context.Context, arg InsertProjectParams) error
+	InsertSeenTask(ctx context.Context, arg InsertSeenTaskParams) error
 	InsertTask(ctx context.Context, arg InsertTaskParams) error
+	ListBillingDays(ctx context.Context) ([]BillingDay, error)
 	ListProjects(ctx context.Context) ([]Project, error)
-	ListTasks(ctx context.Context) ([]Task, error)
-	SetRefreshInterval(ctx context.Context, refreshIntervalSeconds int64) error
+	ListSeenTasks(ctx context.Context) ([]SeenTask, error)
+	// COALESCE defaults to 1 ("already seen"): a task row without a seen_task row
+	// must never render as a new-task highlight.
+	ListTasks(ctx context.Context) ([]ListTasksRow, error)
+	// Only the user-editable fields. The sync stamps have their own setters so a
+	// settings save never rewinds them.
+	SaveSettings(ctx context.Context, arg SaveSettingsParams) error
+	SetBillingSyncedAt(ctx context.Context, billingSyncedAt *string) error
 	SetTasksSyncedAt(ctx context.Context, tasksSyncedAt *string) error
 	UpsertPinestemAccount(ctx context.Context, arg UpsertPinestemAccountParams) error
 	UpsertProfile(ctx context.Context, arg UpsertProfileParams) error
-	UpsertSettings(ctx context.Context, arg UpsertSettingsParams) error
 }
 
 var _ Querier = (*Queries)(nil)

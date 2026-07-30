@@ -1,3 +1,68 @@
+export namespace billing {
+	
+	export class DayTotal {
+	    day: string;
+	    billableMinutes: number;
+	    nonBillableMinutes: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new DayTotal(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.day = source["day"];
+	        this.billableMinutes = source["billableMinutes"];
+	        this.nonBillableMinutes = source["nonBillableMinutes"];
+	    }
+	}
+	export class Summary {
+	    todayMinutes: number;
+	    yesterdayMinutes: number;
+	    weekMinutes: number;
+	    weekBillableMinutes: number;
+	    weekNonBillableMinutes: number;
+	    weekStart: string;
+	    weekEnd: string;
+	    days: DayTotal[];
+	
+	    static createFrom(source: any = {}) {
+	        return new Summary(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.todayMinutes = source["todayMinutes"];
+	        this.yesterdayMinutes = source["yesterdayMinutes"];
+	        this.weekMinutes = source["weekMinutes"];
+	        this.weekBillableMinutes = source["weekBillableMinutes"];
+	        this.weekNonBillableMinutes = source["weekNonBillableMinutes"];
+	        this.weekStart = source["weekStart"];
+	        this.weekEnd = source["weekEnd"];
+	        this.days = this.convertValues(source["days"], DayTotal);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
 export namespace identity {
 	
 	export class Session {
@@ -48,6 +113,42 @@ export namespace main {
 	        this.version = source["version"];
 	        this.platform = source["platform"];
 	    }
+	}
+	export class BillingResult {
+	    summary?: billing.Summary;
+	    syncedAt: string;
+	    errorMessage: string;
+	    fromCacheOnly: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new BillingResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.summary = this.convertValues(source["summary"], billing.Summary);
+	        this.syncedAt = source["syncedAt"];
+	        this.errorMessage = source["errorMessage"];
+	        this.fromCacheOnly = source["fromCacheOnly"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class BootstrapResult {
 	    info: AppInfo;
@@ -164,7 +265,12 @@ export namespace settings {
 	
 	export class Settings {
 	    refreshIntervalSeconds: number;
+	    billingRefreshIntervalSeconds: number;
+	    weekStartDay: number;
+	    notifyNewTasks: boolean;
+	    focusOnNewTask: boolean;
 	    tasksSyncedAt: string;
+	    billingSyncedAt: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
@@ -173,7 +279,12 @@ export namespace settings {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.refreshIntervalSeconds = source["refreshIntervalSeconds"];
+	        this.billingRefreshIntervalSeconds = source["billingRefreshIntervalSeconds"];
+	        this.weekStartDay = source["weekStartDay"];
+	        this.notifyNewTasks = source["notifyNewTasks"];
+	        this.focusOnNewTask = source["focusOnNewTask"];
 	        this.tasksSyncedAt = source["tasksSyncedAt"];
+	        this.billingSyncedAt = source["billingSyncedAt"];
 	    }
 	}
 
@@ -194,6 +305,7 @@ export namespace tasks {
 	    modifiedOn: string;
 	    sprintName: string;
 	    competencyName: string;
+	    isNew: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new Task(source);
@@ -213,6 +325,7 @@ export namespace tasks {
 	        this.modifiedOn = source["modifiedOn"];
 	        this.sprintName = source["sprintName"];
 	        this.competencyName = source["competencyName"];
+	        this.isNew = source["isNew"];
 	    }
 	}
 

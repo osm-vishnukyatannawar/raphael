@@ -6,6 +6,14 @@ export function Bootstrap() {
   return window['go']['main']['App']['Bootstrap']();
 }
 
+export function GetBilling() {
+  return window['go']['main']['App']['GetBilling']();
+}
+
+export function GetBillingForDate(arg1) {
+  return window['go']['main']['App']['GetBillingForDate'](arg1);
+}
+
 export function GetSettings() {
   return window['go']['main']['App']['GetSettings']();
 }
@@ -18,8 +26,16 @@ export function ListTasks() {
   return window['go']['main']['App']['ListTasks']();
 }
 
-export function OpenTask(arg1) {
-  return window['go']['main']['App']['OpenTask'](arg1);
+export function MarkTasksSeen() {
+  return window['go']['main']['App']['MarkTasksSeen']();
+}
+
+export function OpenTask(arg1, arg2) {
+  return window['go']['main']['App']['OpenTask'](arg1, arg2);
+}
+
+export function RefreshBilling() {
+  return window['go']['main']['App']['RefreshBilling']();
 }
 
 export function RefreshTasks() {

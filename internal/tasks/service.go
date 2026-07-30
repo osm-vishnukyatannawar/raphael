@@ -41,6 +41,16 @@ type Task struct {
 	ModifiedOn     string `json:"modifiedOn"`
 	SprintName     string `json:"sprintName"`
 	CompetencyName string `json:"competencyName"`
+	// IsNew drives the highlight: the task appeared in the queue and has not
+	// been opened or dismissed yet. It survives restarts.
+	IsNew bool `json:"isNew"`
+}
+
+// Result is a refresh outcome. New holds only tasks that were not in the queue
+// before, which is what alerting keys off — Tasks is the full list either way.
+type Result struct {
+	Tasks []Task `json:"tasks"`
+	New   []Task `json:"new"`
 }
 
 type Service struct {
@@ -88,6 +98,7 @@ func (s *Service) Cached(ctx context.Context) ([]Task, error) {
 			ModifiedOn:     r.ModifiedOn,
 			SprintName:     r.SprintName,
 			CompetencyName: r.CompetencyName,
+			IsNew:          r.Acknowledged == 0,
 		})
 	}
 
@@ -96,11 +107,20 @@ func (s *Service) Cached(ctx context.Context) ([]Task, error) {
 
 // Refresh pulls the live project list, then the in-review tasks across all of
 // those projects, and replaces the cache with the result.
-func (s *Service) Refresh(ctx context.Context) ([]Task, error) {
+func (s *Service) Refresh(ctx context.Context) (*Result, error) {
 	creds, err := s.creds.Credentials(ctx)
 	if err != nil {
 		return nil, err
 	}
+
+	// A first-ever sync seeds silently. Every task in the queue is "new" when
+	// the cache is empty, and a fresh install firing a notification per open
+	// review is noise, not news.
+	current, err := s.settings.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	seeding := current.TasksSyncedAt == ""
 
 	projects, err := s.fetcher.ListProjects(ctx, creds.Token, creds.CompanyID)
 	if err != nil {
@@ -119,7 +139,8 @@ func (s *Service) Refresh(ctx context.Context) ([]Task, error) {
 		return nil, err
 	}
 
-	if err := s.replaceCache(ctx, projects, fetched); err != nil {
+	newIDs, err := s.replaceCache(ctx, projects, fetched, seeding)
+	if err != nil {
 		return nil, err
 	}
 
@@ -127,27 +148,73 @@ func (s *Service) Refresh(ctx context.Context) ([]Task, error) {
 		return nil, err
 	}
 
-	return s.Cached(ctx)
+	list, err := s.Cached(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	result := &Result{Tasks: list, New: []Task{}}
+	for _, t := range list {
+		if newIDs[t.TaskID] {
+			result.New = append(result.New, t)
+		}
+	}
+
+	return result, nil
 }
 
-// replaceCache swaps the whole cache inside one transaction.
+// Acknowledge clears one task's highlight. Called when the task is opened.
+func (s *Service) Acknowledge(ctx context.Context, taskID int64) error {
+	if err := s.queries.AcknowledgeTask(ctx, taskID); err != nil {
+		return fmt.Errorf("tasks: acknowledge %d: %w", taskID, err)
+	}
+
+	return nil
+}
+
+// AcknowledgeAll clears every highlight at once.
+func (s *Service) AcknowledgeAll(ctx context.Context) error {
+	if err := s.queries.AcknowledgeAllTasks(ctx); err != nil {
+		return fmt.Errorf("tasks: acknowledge all: %w", err)
+	}
+
+	return nil
+}
+
+// replaceCache swaps the whole cache inside one transaction and returns the IDs
+// of tasks that were not in the queue before.
 //
 // Wholesale replacement rather than a row-by-row merge: a task that leaves "In
 // review" simply stops appearing in the response, and diffing to discover that
 // is more code for the same outcome. The transaction means a mid-refresh
 // failure leaves the previous cache intact instead of an empty list.
-func (s *Service) replaceCache(ctx context.Context, projects []pinestem.Project, list []pinestem.Task) error {
+//
+// seen_task is rebuilt alongside it rather than left alone, so that a task which
+// leaves the queue and later returns is treated as new again. Acknowledgement of
+// tasks that are still present is carried across.
+func (s *Service) replaceCache(
+	ctx context.Context, projects []pinestem.Project, list []pinestem.Task, seeding bool,
+) (map[int64]bool, error) {
 	tx, err := s.database.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("tasks: begin transaction: %w", err)
+		return nil, fmt.Errorf("tasks: begin transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 
 	qtx := s.queries.WithTx(tx)
 	syncedAt := time.Now().UTC().Format(time.RFC3339)
 
+	previous, err := qtx.ListSeenTasks(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("tasks: read seen tasks: %w", err)
+	}
+	seen := make(map[int64]sqlc.SeenTask, len(previous))
+	for _, p := range previous {
+		seen[p.TaskID] = p
+	}
+
 	if err := qtx.DeleteAllProjects(ctx); err != nil {
-		return fmt.Errorf("tasks: clear projects: %w", err)
+		return nil, fmt.Errorf("tasks: clear projects: %w", err)
 	}
 	for _, p := range projects {
 		err := qtx.InsertProject(ctx, sqlc.InsertProjectParams{
@@ -157,13 +224,19 @@ func (s *Service) replaceCache(ctx context.Context, projects []pinestem.Project,
 			StatusID:  p.StatusID,
 		})
 		if err != nil {
-			return fmt.Errorf("tasks: cache project %s: %w", p.Code, err)
+			return nil, fmt.Errorf("tasks: cache project %s: %w", p.Code, err)
 		}
 	}
 
 	if err := qtx.DeleteAllTasks(ctx); err != nil {
-		return fmt.Errorf("tasks: clear tasks: %w", err)
+		return nil, fmt.Errorf("tasks: clear tasks: %w", err)
 	}
+	if err := qtx.DeleteAllSeenTasks(ctx); err != nil {
+		return nil, fmt.Errorf("tasks: clear seen tasks: %w", err)
+	}
+
+	newIDs := make(map[int64]bool)
+
 	for _, t := range list {
 		err := qtx.InsertTask(ctx, sqlc.InsertTaskParams{
 			TaskID:         t.TaskID,
@@ -181,13 +254,33 @@ func (s *Service) replaceCache(ctx context.Context, projects []pinestem.Project,
 			SyncedAt:       syncedAt,
 		})
 		if err != nil {
-			return fmt.Errorf("tasks: cache task %s: %w", t.ShortCode, err)
+			return nil, fmt.Errorf("tasks: cache task %s: %w", t.ShortCode, err)
+		}
+
+		entry, known := seen[t.TaskID]
+		switch {
+		case known:
+			// Carry the previous acknowledgement and first-seen stamp forward.
+		case seeding:
+			entry = sqlc.SeenTask{FirstSeenAt: syncedAt, Acknowledged: 1}
+		default:
+			entry = sqlc.SeenTask{FirstSeenAt: syncedAt, Acknowledged: 0}
+			newIDs[t.TaskID] = true
+		}
+
+		err = qtx.InsertSeenTask(ctx, sqlc.InsertSeenTaskParams{
+			TaskID:       t.TaskID,
+			FirstSeenAt:  entry.FirstSeenAt,
+			Acknowledged: entry.Acknowledged,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("tasks: record seen task %s: %w", t.ShortCode, err)
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("tasks: commit cache: %w", err)
+		return nil, fmt.Errorf("tasks: commit cache: %w", err)
 	}
 
-	return nil
+	return newIDs, nil
 }

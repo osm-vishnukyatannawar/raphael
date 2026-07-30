@@ -48,10 +48,18 @@ type Session struct {
 // behalf. UserID belongs here rather than on Session because it is a request
 // parameter (Tasks/Filter's AssignedTo), not something the UI displays — and it
 // is per-company, so it only means anything alongside CompanyID.
+//
+// RoleID, IsProjectManager and TimeZone are request parameters too: the billing
+// report posts all three in its body. They duplicate fields on Session by
+// necessity — Session is what the UI renders, this is what the API is called
+// with, and the two should not be forced to move together.
 type Credentials struct {
-	Token     string
-	CompanyID int64
-	UserID    int64
+	Token            string
+	CompanyID        int64
+	UserID           int64
+	RoleID           int64
+	IsProjectManager bool
+	TimeZone         string
 }
 
 type Service struct {
@@ -190,23 +198,23 @@ func (s *Service) Credentials(ctx context.Context) (*Credentials, error) {
 		return nil, fmt.Errorf("identity: read account: %w", err)
 	}
 
+	token := ""
 	if account.TokenFallback != nil {
-		return &Credentials{
-			Token:     *account.TokenFallback,
-			CompanyID: account.CompanyID,
-			UserID:    account.UserID,
-		}, nil
-	}
-
-	token, err := s.store.Get(secret.KeyPinestemToken)
-	if err != nil {
-		return nil, err
+		token = *account.TokenFallback
+	} else {
+		token, err = s.store.Get(secret.KeyPinestemToken)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return &Credentials{
-		Token:     token,
-		CompanyID: account.CompanyID,
-		UserID:    account.UserID,
+		Token:            token,
+		CompanyID:        account.CompanyID,
+		UserID:           account.UserID,
+		RoleID:           account.RoleID,
+		IsProjectManager: account.IsProjectManager == 1,
+		TimeZone:         account.TimeZone,
 	}, nil
 }
 

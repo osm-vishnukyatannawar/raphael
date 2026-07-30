@@ -99,3 +99,49 @@ export function isOverdue(date: Date | null, now = new Date()): boolean {
 
   return endOfDueDay.getTime() < now.getTime()
 }
+
+/**
+ * "4.50 h" from Pinestem's integer minutes.
+ *
+ * Two decimals matches how Pinestem itself renders hours (its own
+ * `*_HoursFormat` fields), so numbers here can be compared against the web app
+ * without mental arithmetic.
+ */
+export function formatHours(minutes: number): string {
+  return `${(minutes / 60).toFixed(2)} h`
+}
+
+/** Parses a "YYYY-MM-DD" day key as a local date. Null if unparseable. */
+export function parseDay(day: string | undefined): Date | null {
+  if (!day) return null
+
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day)
+  if (!m) return null
+
+  const [, year, month, date] = m
+
+  return new Date(Number(year), Number(month) - 1, Number(date))
+}
+
+/** "Mon 27" for a day key, for the week breakdown. */
+export function dayLabel(day: string): string {
+  const date = parseDay(day)
+  if (!date) return day
+
+  return date.toLocaleDateString(undefined, {
+    weekday: 'short',
+    day: 'numeric',
+  })
+}
+
+/** "YYYY-MM-DD" for a Date, in local time — the inverse of parseDay. */
+export function toDayKey(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+
+/** True when the day key is today, for emphasising it in the week grid. */
+export function isToday(day: string, now = new Date()): boolean {
+  return day === toDayKey(now)
+}

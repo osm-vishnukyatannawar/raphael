@@ -12,9 +12,20 @@ type AppProfile struct {
 }
 
 type AppSetting struct {
-	ID                     int64   `json:"id"`
-	RefreshIntervalSeconds int64   `json:"refresh_interval_seconds"`
-	TasksSyncedAt          *string `json:"tasks_synced_at"`
+	ID                            int64   `json:"id"`
+	RefreshIntervalSeconds        int64   `json:"refresh_interval_seconds"`
+	TasksSyncedAt                 *string `json:"tasks_synced_at"`
+	NotifyNewTasks                int64   `json:"notify_new_tasks"`
+	FocusOnNewTask                int64   `json:"focus_on_new_task"`
+	BillingRefreshIntervalSeconds int64   `json:"billing_refresh_interval_seconds"`
+	WeekStartDay                  int64   `json:"week_start_day"`
+	BillingSyncedAt               *string `json:"billing_synced_at"`
+}
+
+type BillingDay struct {
+	Day                string `json:"day"`
+	BillableMinutes    int64  `json:"billable_minutes"`
+	NonBillableMinutes int64  `json:"non_billable_minutes"`
 }
 
 type PinestemAccount struct {
@@ -40,6 +51,12 @@ type Project struct {
 	Code      string `json:"code"`
 	Name      string `json:"name"`
 	StatusID  int64  `json:"status_id"`
+}
+
+type SeenTask struct {
+	TaskID       int64  `json:"task_id"`
+	FirstSeenAt  string `json:"first_seen_at"`
+	Acknowledged int64  `json:"acknowledged"`
 }
 
 type Task struct {

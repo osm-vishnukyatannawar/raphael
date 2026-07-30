@@ -9,12 +9,48 @@ import (
 	"context"
 )
 
+const acknowledgeAllTasks = `-- name: AcknowledgeAllTasks :exec
+UPDATE seen_task SET acknowledged = 1
+`
+
+func (q *Queries) AcknowledgeAllTasks(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, acknowledgeAllTasks)
+	return err
+}
+
+const acknowledgeTask = `-- name: AcknowledgeTask :exec
+UPDATE seen_task SET acknowledged = 1 WHERE task_id = ?
+`
+
+func (q *Queries) AcknowledgeTask(ctx context.Context, taskID int64) error {
+	_, err := q.db.ExecContext(ctx, acknowledgeTask, taskID)
+	return err
+}
+
+const deleteAllBillingDays = `-- name: DeleteAllBillingDays :exec
+DELETE FROM billing_day
+`
+
+func (q *Queries) DeleteAllBillingDays(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, deleteAllBillingDays)
+	return err
+}
+
 const deleteAllProjects = `-- name: DeleteAllProjects :exec
 DELETE FROM project
 `
 
 func (q *Queries) DeleteAllProjects(ctx context.Context) error {
 	_, err := q.db.ExecContext(ctx, deleteAllProjects)
+	return err
+}
+
+const deleteAllSeenTasks = `-- name: DeleteAllSeenTasks :exec
+DELETE FROM seen_task
+`
+
+func (q *Queries) DeleteAllSeenTasks(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, deleteAllSeenTasks)
 	return err
 }
 
@@ -28,14 +64,39 @@ func (q *Queries) DeleteAllTasks(ctx context.Context) error {
 }
 
 const getSettings = `-- name: GetSettings :one
-SELECT id, refresh_interval_seconds, tasks_synced_at FROM app_settings WHERE id = 1
+SELECT id, refresh_interval_seconds, tasks_synced_at, notify_new_tasks, focus_on_new_task, billing_refresh_interval_seconds, week_start_day, billing_synced_at FROM app_settings WHERE id = 1
 `
 
 func (q *Queries) GetSettings(ctx context.Context) (AppSetting, error) {
 	row := q.db.QueryRowContext(ctx, getSettings)
 	var i AppSetting
-	err := row.Scan(&i.ID, &i.RefreshIntervalSeconds, &i.TasksSyncedAt)
+	err := row.Scan(
+		&i.ID,
+		&i.RefreshIntervalSeconds,
+		&i.TasksSyncedAt,
+		&i.NotifyNewTasks,
+		&i.FocusOnNewTask,
+		&i.BillingRefreshIntervalSeconds,
+		&i.WeekStartDay,
+		&i.BillingSyncedAt,
+	)
 	return i, err
+}
+
+const insertBillingDay = `-- name: InsertBillingDay :exec
+INSERT INTO billing_day (day, billable_minutes, non_billable_minutes)
+VALUES (?, ?, ?)
+`
+
+type InsertBillingDayParams struct {
+	Day                string `json:"day"`
+	BillableMinutes    int64  `json:"billable_minutes"`
+	NonBillableMinutes int64  `json:"non_billable_minutes"`
+}
+
+func (q *Queries) InsertBillingDay(ctx context.Context, arg InsertBillingDayParams) error {
+	_, err := q.db.ExecContext(ctx, insertBillingDay, arg.Day, arg.BillableMinutes, arg.NonBillableMinutes)
+	return err
 }
 
 const insertProject = `-- name: InsertProject :exec
@@ -57,6 +118,21 @@ func (q *Queries) InsertProject(ctx context.Context, arg InsertProjectParams) er
 		arg.Name,
 		arg.StatusID,
 	)
+	return err
+}
+
+const insertSeenTask = `-- name: InsertSeenTask :exec
+INSERT INTO seen_task (task_id, first_seen_at, acknowledged) VALUES (?, ?, ?)
+`
+
+type InsertSeenTaskParams struct {
+	TaskID       int64  `json:"task_id"`
+	FirstSeenAt  string `json:"first_seen_at"`
+	Acknowledged int64  `json:"acknowledged"`
+}
+
+func (q *Queries) InsertSeenTask(ctx context.Context, arg InsertSeenTaskParams) error {
+	_, err := q.db.ExecContext(ctx, insertSeenTask, arg.TaskID, arg.FirstSeenAt, arg.Acknowledged)
 	return err
 }
 
@@ -103,6 +179,33 @@ func (q *Queries) InsertTask(ctx context.Context, arg InsertTaskParams) error {
 	return err
 }
 
+const listBillingDays = `-- name: ListBillingDays :many
+SELECT day, billable_minutes, non_billable_minutes FROM billing_day ORDER BY day
+`
+
+func (q *Queries) ListBillingDays(ctx context.Context) ([]BillingDay, error) {
+	rows, err := q.db.QueryContext(ctx, listBillingDays)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []BillingDay{}
+	for rows.Next() {
+		var i BillingDay
+		if err := rows.Scan(&i.Day, &i.BillableMinutes, &i.NonBillableMinutes); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listProjects = `-- name: ListProjects :many
 SELECT project_id, code, name, status_id FROM project ORDER BY code
 `
@@ -135,19 +238,68 @@ func (q *Queries) ListProjects(ctx context.Context) ([]Project, error) {
 	return items, nil
 }
 
-const listTasks = `-- name: ListTasks :many
-SELECT task_id, short_code, name, project_code, project_name, priority, status_type, status_color, due_date, modified_on, sprint_name, competency_name, synced_at FROM task ORDER BY modified_on DESC
+const listSeenTasks = `-- name: ListSeenTasks :many
+SELECT task_id, first_seen_at, acknowledged FROM seen_task
 `
 
-func (q *Queries) ListTasks(ctx context.Context) ([]Task, error) {
+func (q *Queries) ListSeenTasks(ctx context.Context) ([]SeenTask, error) {
+	rows, err := q.db.QueryContext(ctx, listSeenTasks)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SeenTask{}
+	for rows.Next() {
+		var i SeenTask
+		if err := rows.Scan(&i.TaskID, &i.FirstSeenAt, &i.Acknowledged); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listTasks = `-- name: ListTasks :many
+SELECT t.task_id, t.short_code, t.name, t.project_code, t.project_name, t.priority, t.status_type, t.status_color, t.due_date, t.modified_on, t.sprint_name, t.competency_name, t.synced_at, COALESCE(s.acknowledged, 1) AS acknowledged
+FROM task t
+LEFT JOIN seen_task s ON s.task_id = t.task_id
+ORDER BY t.modified_on DESC
+`
+
+type ListTasksRow struct {
+	TaskID         int64  `json:"task_id"`
+	ShortCode      string `json:"short_code"`
+	Name           string `json:"name"`
+	ProjectCode    string `json:"project_code"`
+	ProjectName    string `json:"project_name"`
+	Priority       string `json:"priority"`
+	StatusType     string `json:"status_type"`
+	StatusColor    string `json:"status_color"`
+	DueDate        string `json:"due_date"`
+	ModifiedOn     string `json:"modified_on"`
+	SprintName     string `json:"sprint_name"`
+	CompetencyName string `json:"competency_name"`
+	SyncedAt       string `json:"synced_at"`
+	Acknowledged   int64  `json:"acknowledged"`
+}
+
+// COALESCE defaults to 1 ("already seen"): a task row without a seen_task row
+// must never render as a new-task highlight.
+func (q *Queries) ListTasks(ctx context.Context) ([]ListTasksRow, error) {
 	rows, err := q.db.QueryContext(ctx, listTasks)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Task{}
+	items := []ListTasksRow{}
 	for rows.Next() {
-		var i Task
+		var i ListTasksRow
 		if err := rows.Scan(
 			&i.TaskID,
 			&i.ShortCode,
@@ -162,6 +314,7 @@ func (q *Queries) ListTasks(ctx context.Context) ([]Task, error) {
 			&i.SprintName,
 			&i.CompetencyName,
 			&i.SyncedAt,
+			&i.Acknowledged,
 		); err != nil {
 			return nil, err
 		}
@@ -176,14 +329,48 @@ func (q *Queries) ListTasks(ctx context.Context) ([]Task, error) {
 	return items, nil
 }
 
-const setRefreshInterval = `-- name: SetRefreshInterval :exec
-INSERT INTO app_settings (id, refresh_interval_seconds)
-VALUES (1, ?)
-ON CONFLICT(id) DO UPDATE SET refresh_interval_seconds = excluded.refresh_interval_seconds
+const saveSettings = `-- name: SaveSettings :exec
+INSERT INTO app_settings (
+    id, refresh_interval_seconds, billing_refresh_interval_seconds,
+    week_start_day, notify_new_tasks, focus_on_new_task
+) VALUES (1, ?, ?, ?, ?, ?)
+ON CONFLICT(id) DO UPDATE SET
+    refresh_interval_seconds         = excluded.refresh_interval_seconds,
+    billing_refresh_interval_seconds = excluded.billing_refresh_interval_seconds,
+    week_start_day                   = excluded.week_start_day,
+    notify_new_tasks                 = excluded.notify_new_tasks,
+    focus_on_new_task                = excluded.focus_on_new_task
 `
 
-func (q *Queries) SetRefreshInterval(ctx context.Context, refreshIntervalSeconds int64) error {
-	_, err := q.db.ExecContext(ctx, setRefreshInterval, refreshIntervalSeconds)
+type SaveSettingsParams struct {
+	RefreshIntervalSeconds        int64 `json:"refresh_interval_seconds"`
+	BillingRefreshIntervalSeconds int64 `json:"billing_refresh_interval_seconds"`
+	WeekStartDay                  int64 `json:"week_start_day"`
+	NotifyNewTasks                int64 `json:"notify_new_tasks"`
+	FocusOnNewTask                int64 `json:"focus_on_new_task"`
+}
+
+// Only the user-editable fields. The sync stamps have their own setters so a
+// settings save never rewinds them.
+func (q *Queries) SaveSettings(ctx context.Context, arg SaveSettingsParams) error {
+	_, err := q.db.ExecContext(ctx, saveSettings,
+		arg.RefreshIntervalSeconds,
+		arg.BillingRefreshIntervalSeconds,
+		arg.WeekStartDay,
+		arg.NotifyNewTasks,
+		arg.FocusOnNewTask,
+	)
+	return err
+}
+
+const setBillingSyncedAt = `-- name: SetBillingSyncedAt :exec
+INSERT INTO app_settings (id, billing_synced_at)
+VALUES (1, ?)
+ON CONFLICT(id) DO UPDATE SET billing_synced_at = excluded.billing_synced_at
+`
+
+func (q *Queries) SetBillingSyncedAt(ctx context.Context, billingSyncedAt *string) error {
+	_, err := q.db.ExecContext(ctx, setBillingSyncedAt, billingSyncedAt)
 	return err
 }
 
@@ -195,23 +382,5 @@ ON CONFLICT(id) DO UPDATE SET tasks_synced_at = excluded.tasks_synced_at
 
 func (q *Queries) SetTasksSyncedAt(ctx context.Context, tasksSyncedAt *string) error {
 	_, err := q.db.ExecContext(ctx, setTasksSyncedAt, tasksSyncedAt)
-	return err
-}
-
-const upsertSettings = `-- name: UpsertSettings :exec
-INSERT INTO app_settings (id, refresh_interval_seconds, tasks_synced_at)
-VALUES (1, ?, ?)
-ON CONFLICT(id) DO UPDATE SET
-    refresh_interval_seconds = excluded.refresh_interval_seconds,
-    tasks_synced_at          = excluded.tasks_synced_at
-`
-
-type UpsertSettingsParams struct {
-	RefreshIntervalSeconds int64   `json:"refresh_interval_seconds"`
-	TasksSyncedAt          *string `json:"tasks_synced_at"`
-}
-
-func (q *Queries) UpsertSettings(ctx context.Context, arg UpsertSettingsParams) error {
-	_, err := q.db.ExecContext(ctx, upsertSettings, arg.RefreshIntervalSeconds, arg.TasksSyncedAt)
 	return err
 }
