@@ -14,6 +14,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { formatHours } from '@/lib/time'
 import {
   DeleteMonitor,
   ListProjectMembers,
@@ -332,8 +333,14 @@ function EditorForm({
             </div>
           ))}
 
+          {/*
+            Read back through the shared formatter, so the total below the
+            inputs is in the same h:mm the rest of the app shows. The inputs
+            themselves stay decimal hours — typing 7.5 is easier than 7:30 on a
+            number field, and this line is what confirms it landed as 7:30.
+          */}
           <p className="text-muted-foreground text-xs">
-            Total: {totalHours(drafts).toFixed(2)} h per month
+            Total: {formatHours(totalTargetMinutes(drafts))} per month
           </p>
         </div>
       )}
@@ -451,7 +458,7 @@ function toMinutes(hours: string | undefined): number {
   return Math.round(parsed * 60)
 }
 
-function totalHours(drafts: MemberDraft[]): number {
+function totalTargetMinutes(drafts: MemberDraft[]): number {
   let minutes = 0
 
   for (const draft of drafts) {
@@ -464,5 +471,5 @@ function totalHours(drafts: MemberDraft[]): number {
     }
   }
 
-  return minutes / 60
+  return minutes
 }

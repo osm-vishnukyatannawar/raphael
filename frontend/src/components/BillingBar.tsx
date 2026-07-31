@@ -168,7 +168,7 @@ function WeekGrid({ summary }: { summary: billing.Summary }) {
                 {dayLabel(day.day)}
               </span>
               <span className="text-[10px] tabular-nums">
-                {minutes === 0 ? '—' : (minutes / 60).toFixed(2)}
+                {minutes === 0 ? '—' : formatHours(minutes)}
               </span>
             </li>
           )

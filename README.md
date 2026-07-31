@@ -336,7 +336,9 @@ Three things that are easy to get wrong here, all confirmed live:
   colleague later needs no signature change.
 - **`BillableHours` and `NonBillableHours` are integer minutes**, despite the names —
   `300` renders as `"5"` in `BillableHours_HoursFormat`. They stay minutes all the way
-  to the UI; 0.1h has no exact binary float representation.
+  to the UI; 0.1h has no exact binary float representation. Every duration is
+  rendered as `h:mm` by `formatHours` in `frontend/src/lib/time.ts` — the one
+  formatter, so `12:30` never appears as `12.50 h` somewhere else.
 - **Per-row `TotalHours` is always `0`.** The row total is billable + non-billable.
 
 `ProjectIds` is optional; omitting it covers every project, so billing needs no

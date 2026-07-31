@@ -101,14 +101,23 @@ export function isOverdue(date: Date | null, now = new Date()): boolean {
 }
 
 /**
- * "4.50 h" from Pinestem's integer minutes.
+ * "4:30" from Pinestem's integer minutes — hours and minutes, not a decimal.
  *
- * Two decimals matches how Pinestem itself renders hours (its own
- * `*_HoursFormat` fields), so numbers here can be compared against the web app
- * without mental arithmetic.
+ * Decimal hours read as arithmetic ("4.50 h" is four and a half hours only
+ * after you think about it); a clock reading does not. This is the single
+ * formatter for every duration in the app, so the format is consistent
+ * everywhere by construction.
+ *
+ * Minutes are integers all the way from the API, so there is nothing to round
+ * in practice — Math.round only guards a caller that computed a fraction. The
+ * sign is handled explicitly because "-1:30" is right and "-1:-30" is not.
  */
 export function formatHours(minutes: number): string {
-  return `${(minutes / 60).toFixed(2)} h`
+  const sign = minutes < 0 ? '-' : ''
+  const total = Math.abs(Math.round(minutes))
+  const hours = Math.floor(total / 60)
+
+  return `${sign}${hours}:${String(total % 60).padStart(2, '0')}`
 }
 
 /** Parses a "YYYY-MM-DD" day key as a local date. Null if unparseable. */
