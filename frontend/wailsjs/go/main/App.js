@@ -10,6 +10,10 @@ export function DeleteMonitor(arg1) {
   return window['go']['main']['App']['DeleteMonitor'](arg1);
 }
 
+export function DeleteTeamBoard(arg1) {
+  return window['go']['main']['App']['DeleteTeamBoard'](arg1);
+}
+
 export function GetBilling() {
   return window['go']['main']['App']['GetBilling']();
 }
@@ -32,6 +36,10 @@ export function GetMyTasksOptions() {
 
 export function GetSettings() {
   return window['go']['main']['App']['GetSettings']();
+}
+
+export function GetTeamBoard(arg1) {
+  return window['go']['main']['App']['GetTeamBoard'](arg1);
 }
 
 export function HideMyTask(arg1) {
@@ -62,6 +70,18 @@ export function ListTasks() {
   return window['go']['main']['App']['ListTasks']();
 }
 
+export function ListTeamBoards() {
+  return window['go']['main']['App']['ListTeamBoards']();
+}
+
+export function ListTeamMembers(arg1) {
+  return window['go']['main']['App']['ListTeamMembers'](arg1);
+}
+
+export function ListTeamStatuses(arg1) {
+  return window['go']['main']['App']['ListTeamStatuses'](arg1);
+}
+
 export function MarkMyTasksSeen() {
   return window['go']['main']['App']['MarkMyTasksSeen']();
 }
@@ -90,6 +110,14 @@ export function RefreshTasks() {
   return window['go']['main']['App']['RefreshTasks']();
 }
 
+export function RefreshTeamBoards() {
+  return window['go']['main']['App']['RefreshTeamBoards']();
+}
+
+export function ReorderTeamBoards(arg1) {
+  return window['go']['main']['App']['ReorderTeamBoards'](arg1);
+}
+
 export function SaveMonitor(arg1) {
   return window['go']['main']['App']['SaveMonitor'](arg1);
 }
@@ -100,6 +128,10 @@ export function SaveMyTasksFilter(arg1) {
 
 export function SaveSettings(arg1) {
   return window['go']['main']['App']['SaveSettings'](arg1);
+}
+
+export function SaveTeamBoard(arg1) {
+  return window['go']['main']['App']['SaveTeamBoard'](arg1);
 }
 
 export function SetDisplayName(arg1) {

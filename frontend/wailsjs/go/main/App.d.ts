@@ -5,11 +5,14 @@ import {billing} from '../models';
 import {monitor} from '../models';
 import {mytasks} from '../models';
 import {settings} from '../models';
+import {team} from '../models';
 import {pinestem} from '../models';
 
 export function Bootstrap():Promise<main.BootstrapResult>;
 
 export function DeleteMonitor(arg1:number):Promise<void>;
+
+export function DeleteTeamBoard(arg1:number):Promise<void>;
 
 export function GetBilling():Promise<main.BillingResult>;
 
@@ -22,6 +25,8 @@ export function GetMyTasksFilter():Promise<mytasks.Filter>;
 export function GetMyTasksOptions():Promise<mytasks.Options>;
 
 export function GetSettings():Promise<settings.Settings>;
+
+export function GetTeamBoard(arg1:number):Promise<team.Board>;
 
 export function HideMyTask(arg1:number):Promise<void>;
 
@@ -37,6 +42,12 @@ export function ListSelectableProjects():Promise<Array<pinestem.Project>>;
 
 export function ListTasks():Promise<main.TasksResult>;
 
+export function ListTeamBoards():Promise<main.TeamResult>;
+
+export function ListTeamMembers(arg1:Array<string>):Promise<Array<pinestem.Member>>;
+
+export function ListTeamStatuses(arg1:Array<string>):Promise<Array<pinestem.TaskStatus>>;
+
 export function MarkMyTasksSeen():Promise<void>;
 
 export function MarkTasksSeen():Promise<void>;
@@ -51,11 +62,17 @@ export function RefreshMyTasks():Promise<main.MyTasksResult>;
 
 export function RefreshTasks():Promise<main.TasksResult>;
 
+export function RefreshTeamBoards():Promise<main.TeamResult>;
+
+export function ReorderTeamBoards(arg1:Array<number>):Promise<void>;
+
 export function SaveMonitor(arg1:monitor.Monitor):Promise<monitor.Monitor>;
 
 export function SaveMyTasksFilter(arg1:mytasks.Filter):Promise<mytasks.Filter>;
 
 export function SaveSettings(arg1:settings.Settings):Promise<settings.Settings>;
+
+export function SaveTeamBoard(arg1:team.Board):Promise<team.Board>;
 
 export function SetDisplayName(arg1:string):Promise<void>;
 

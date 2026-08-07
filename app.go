@@ -23,6 +23,7 @@ import (
 	"github.com/osm-vishnukyatannawar/raphael/internal/secret"
 	"github.com/osm-vishnukyatannawar/raphael/internal/settings"
 	"github.com/osm-vishnukyatannawar/raphael/internal/tasks"
+	"github.com/osm-vishnukyatannawar/raphael/internal/team"
 )
 
 // taskURLTemplate opens a task in the Pinestem web app. It is keyed by the
@@ -36,6 +37,7 @@ const (
 	eventBillingUpdated  = "billing:updated"
 	eventMonitorsUpdated = "monitors:updated"
 	eventMyTasksUpdated  = "mytasks:updated"
+	eventTeamUpdated     = "team:updated"
 )
 
 // Each alert kind reuses one ID so the OS replaces the previous notification of
@@ -62,6 +64,7 @@ type App struct {
 	billing  *billing.Service
 	settings *settings.Service
 	monitors *monitor.Service
+	team     *team.Service
 	notifier notify.Notifier
 	// notifications is the concrete service, kept for its shutdown hook.
 	notifications *notify.Service
@@ -69,6 +72,7 @@ type App struct {
 	tasksPoller   *poller.Poller
 	billingPoller *poller.Poller
 	myTasksPoller *poller.Poller
+	teamPoller    *poller.Poller
 
 	// startupErr is recorded rather than fatal: a window that explains it can't
 	// open its database is better than one that vanishes on launch.
@@ -148,6 +152,7 @@ func (a *App) startup(ctx context.Context) {
 	a.mytasks = mytasks.New(database, client, a.identity, a.settings)
 	a.billing = billing.New(database, client, a.identity, a.settings)
 	a.monitors = monitor.New(database, client, a.identity)
+	a.team = team.New(database, client, a.identity, a.settings)
 
 	a.startPollers(ctx)
 }
@@ -163,16 +168,19 @@ func (a *App) startPollers(ctx context.Context) {
 	a.tasksPoller = poller.New(seconds(current.RefreshIntervalSeconds), a.syncTasks)
 	a.billingPoller = poller.New(seconds(current.BillingRefreshIntervalSeconds), a.syncBilling)
 	a.myTasksPoller = poller.New(seconds(current.MyTasksRefreshIntervalSeconds), a.syncMyTasks)
+	a.teamPoller = poller.New(seconds(current.TeamRefreshIntervalSeconds), a.syncTeam)
 
 	a.tasksPoller.Start(ctx)
 	a.billingPoller.Start(ctx)
 	a.myTasksPoller.Start(ctx)
+	a.teamPoller.Start(ctx)
 
 	// Paint live data on launch rather than making the user wait out a whole
 	// interval on top of whatever the cache last held.
 	a.tasksPoller.Trigger()
 	a.billingPoller.Trigger()
 	a.myTasksPoller.Trigger()
+	a.teamPoller.Trigger()
 }
 
 // shutdown stops the loops and closes the database on window close.
@@ -185,6 +193,9 @@ func (a *App) shutdown(ctx context.Context) {
 	}
 	if a.myTasksPoller != nil {
 		a.myTasksPoller.Stop()
+	}
+	if a.teamPoller != nil {
+		a.teamPoller.Stop()
 	}
 
 	if a.notifications != nil {
@@ -594,6 +605,108 @@ func (a *App) ListProjectMembers(projectCodes []string) ([]pinestem.Member, erro
 	return a.client.ListProjectMembers(a.ctx, creds.Token, creds.CompanyID, projectCodes)
 }
 
+// TeamResult is every team board plus the shared staleness flags. The boards
+// travel together because one poller refreshes them all and the strip renders
+// them as a set.
+type TeamResult struct {
+	Boards        []team.BoardView `json:"boards"`
+	SyncedAt      string           `json:"syncedAt"`
+	ErrorMessage  string           `json:"errorMessage"`
+	FromCacheOnly bool             `json:"fromCacheOnly"`
+}
+
+// ListTeamBoards returns the cached boards without hitting the network.
+func (a *App) ListTeamBoards() TeamResult {
+	if a.team == nil {
+		return TeamResult{Boards: []team.BoardView{}, ErrorMessage: "Raphael is not ready yet."}
+	}
+
+	boards, err := a.team.Cached(a.ctx)
+	if err != nil {
+		log.Printf("list team boards: %v", err)
+
+		return TeamResult{Boards: []team.BoardView{}, ErrorMessage: err.Error()}
+	}
+
+	return TeamResult{Boards: boards, SyncedAt: a.stamp(func(s *settings.Settings) string {
+		return s.TeamSyncedAt
+	})}
+}
+
+// RefreshTeamBoards pulls every board on demand.
+func (a *App) RefreshTeamBoards() TeamResult {
+	if a.team == nil {
+		return TeamResult{Boards: []team.BoardView{}, ErrorMessage: "Raphael is not ready yet."}
+	}
+
+	return a.refreshTeam(a.ctx)
+}
+
+// GetTeamBoard returns one board's configuration for the editor.
+func (a *App) GetTeamBoard(id int64) (*team.Board, error) {
+	if a.team == nil {
+		return nil, errors.New("raphael is not ready yet")
+	}
+
+	return a.team.Get(a.ctx, id)
+}
+
+// SaveTeamBoard creates or updates a board and refreshes, so the new
+// configuration shows immediately rather than at the next tick.
+func (a *App) SaveTeamBoard(in team.Board) (*team.Board, error) {
+	if a.team == nil {
+		return nil, errors.New("raphael is not ready yet")
+	}
+
+	saved, err := a.team.Save(a.ctx, in)
+	if err != nil {
+		return nil, err
+	}
+
+	a.teamPoller.Trigger()
+
+	return saved, nil
+}
+
+// DeleteTeamBoard removes a board and its cached rows.
+func (a *App) DeleteTeamBoard(id int64) error {
+	if a.team == nil {
+		return errors.New("raphael is not ready yet")
+	}
+
+	return a.team.Delete(a.ctx, id)
+}
+
+// ReorderTeamBoards rewrites the strip order from the given sequence of IDs.
+func (a *App) ReorderTeamBoards(ids []int64) error {
+	if a.team == nil {
+		return errors.New("raphael is not ready yet")
+	}
+
+	return a.team.Reorder(a.ctx, ids)
+}
+
+// ListTeamMembers is the people picker for the board editor. Passing no project
+// codes asks for the whole company, which is what the picker shows before any
+// project is chosen.
+func (a *App) ListTeamMembers(projectCodes []string) ([]pinestem.Member, error) {
+	if a.team == nil {
+		return nil, errors.New("raphael is not ready yet")
+	}
+
+	return a.team.Members(a.ctx, projectCodes)
+}
+
+// ListTeamStatuses is the status picker for a task board, scoped to the
+// projects already chosen.
+func (a *App) ListTeamStatuses(projectCodes []string) ([]pinestem.TaskStatus, error) {
+	if a.team == nil {
+		return nil, errors.New("raphael is not ready yet")
+	}
+
+	return a.team.Statuses(a.ctx, projectCodes)
+}
+
 // GetSettings returns the stored preferences.
 func (a *App) GetSettings() (*settings.Settings, error) {
 	if a.settings == nil {
@@ -606,7 +719,7 @@ func (a *App) GetSettings() (*settings.Settings, error) {
 // SaveSettings stores the preferences and returns them as actually persisted —
 // intervals are clamped, so this may differ from what was sent.
 //
-// Both pollers are re-armed here rather than on the next tick, so turning the
+// Every poller is re-armed here rather than on the next tick, so turning an
 // interval down takes effect immediately instead of after the old one expires.
 func (a *App) SaveSettings(in settings.Settings) (*settings.Settings, error) {
 	if a.settings == nil {
@@ -621,6 +734,7 @@ func (a *App) SaveSettings(in settings.Settings) (*settings.Settings, error) {
 	a.tasksPoller.Reload(seconds(saved.RefreshIntervalSeconds))
 	a.billingPoller.Reload(seconds(saved.BillingRefreshIntervalSeconds))
 	a.myTasksPoller.Reload(seconds(saved.MyTasksRefreshIntervalSeconds))
+	a.teamPoller.Reload(seconds(saved.TeamRefreshIntervalSeconds))
 
 	return saved, nil
 }
@@ -679,6 +793,16 @@ func (a *App) syncTasks(ctx context.Context) {
 func (a *App) syncMyTasks(ctx context.Context) {
 	result := a.refreshMyTasks(ctx)
 	wailsruntime.EventsEmit(ctx, eventMyTasksUpdated, result)
+}
+
+// syncTeam is the team-board poller's callback.
+//
+// There is deliberately no alert step here, unlike syncTasks and syncMyTasks: a
+// team board reports on other people's queues, which is not worth interrupting
+// the user for.
+func (a *App) syncTeam(ctx context.Context) {
+	result := a.refreshTeam(ctx)
+	wailsruntime.EventsEmit(ctx, eventTeamUpdated, result)
 }
 
 // syncBilling refreshes the personal figures and the monitors together. They
@@ -812,6 +936,41 @@ func (a *App) refreshMonitors(ctx context.Context) MonitorsResult {
 	}
 
 	return MonitorsResult{Monitors: list, SyncedAt: syncedAt()}
+}
+
+// refreshTeam does the work behind both the team poller and the manual button.
+//
+// Same degradation as the other lists: on failure it returns whatever is
+// cached, flagged FromCacheOnly, so a dropped network warns over stale boards
+// rather than emptying them.
+func (a *App) refreshTeam(ctx context.Context) TeamResult {
+	syncedAt := func() string {
+		return a.stamp(func(s *settings.Settings) string { return s.TeamSyncedAt })
+	}
+
+	boards, err := a.team.Refresh(ctx)
+	if err != nil {
+		// The pollers start before sign-in, so this is the expected path on a
+		// fresh install rather than a failure worth surfacing.
+		if errors.Is(err, identity.ErrNotOnboarded) {
+			return TeamResult{Boards: []team.BoardView{}}
+		}
+		log.Printf("refresh team boards: %v", err)
+
+		cached, cacheErr := a.team.Cached(ctx)
+		if cacheErr != nil {
+			cached = []team.BoardView{}
+		}
+
+		return TeamResult{
+			Boards:        cached,
+			SyncedAt:      syncedAt(),
+			ErrorMessage:  err.Error(),
+			FromCacheOnly: true,
+		}
+	}
+
+	return TeamResult{Boards: boards, SyncedAt: syncedAt()}
 }
 
 // alert notifies and raises the window for newly arrived tasks, each gated on

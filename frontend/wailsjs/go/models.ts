@@ -332,6 +332,42 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class TeamResult {
+	    boards: team.BoardView[];
+	    syncedAt: string;
+	    errorMessage: string;
+	    fromCacheOnly: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new TeamResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.boards = this.convertValues(source["boards"], team.BoardView);
+	        this.syncedAt = source["syncedAt"];
+	        this.errorMessage = source["errorMessage"];
+	        this.fromCacheOnly = source["fromCacheOnly"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 
 }
 
@@ -718,6 +754,7 @@ export namespace settings {
 	    refreshIntervalSeconds: number;
 	    billingRefreshIntervalSeconds: number;
 	    myTasksRefreshIntervalSeconds: number;
+	    teamRefreshIntervalSeconds: number;
 	    weekStartDay: number;
 	    notifyNewTasks: boolean;
 	    focusOnNewTask: boolean;
@@ -727,6 +764,7 @@ export namespace settings {
 	    billingSyncedAt: string;
 	    monitorsSyncedAt: string;
 	    myTasksSyncedAt: string;
+	    teamSyncedAt: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
@@ -737,6 +775,7 @@ export namespace settings {
 	        this.refreshIntervalSeconds = source["refreshIntervalSeconds"];
 	        this.billingRefreshIntervalSeconds = source["billingRefreshIntervalSeconds"];
 	        this.myTasksRefreshIntervalSeconds = source["myTasksRefreshIntervalSeconds"];
+	        this.teamRefreshIntervalSeconds = source["teamRefreshIntervalSeconds"];
 	        this.weekStartDay = source["weekStartDay"];
 	        this.notifyNewTasks = source["notifyNewTasks"];
 	        this.focusOnNewTask = source["focusOnNewTask"];
@@ -746,6 +785,7 @@ export namespace settings {
 	        this.billingSyncedAt = source["billingSyncedAt"];
 	        this.monitorsSyncedAt = source["monitorsSyncedAt"];
 	        this.myTasksSyncedAt = source["myTasksSyncedAt"];
+	        this.teamSyncedAt = source["teamSyncedAt"];
 	    }
 	}
 
@@ -789,6 +829,256 @@ export namespace tasks {
 	        this.isNew = source["isNew"];
 	    }
 	}
+
+}
+
+export namespace team {
+	
+	export class StatusRef {
+	    statusId: number;
+	    name: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new StatusRef(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.statusId = source["statusId"];
+	        this.name = source["name"];
+	    }
+	}
+	export class MemberRef {
+	    empId: number;
+	    name: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new MemberRef(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.empId = source["empId"];
+	        this.name = source["name"];
+	    }
+	}
+	export class ProjectRef {
+	    projectId: number;
+	    code: string;
+	    name: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ProjectRef(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.projectId = source["projectId"];
+	        this.code = source["code"];
+	        this.name = source["name"];
+	    }
+	}
+	export class Board {
+	    id: number;
+	    kind: string;
+	    name: string;
+	    position: number;
+	    projects: ProjectRef[];
+	    members: MemberRef[];
+	    statuses: StatusRef[];
+	
+	    static createFrom(source: any = {}) {
+	        return new Board(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.kind = source["kind"];
+	        this.name = source["name"];
+	        this.position = source["position"];
+	        this.projects = this.convertValues(source["projects"], ProjectRef);
+	        this.members = this.convertValues(source["members"], MemberRef);
+	        this.statuses = this.convertValues(source["statuses"], StatusRef);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class MemberHours {
+	    empId: number;
+	    empName: string;
+	    todayMinutes: number;
+	    yesterdayMinutes: number;
+	    weekMinutes: number;
+	    weekBillableMinutes: number;
+	    weekNonBillableMinutes: number;
+	    days: billing.DayTotal[];
+	
+	    static createFrom(source: any = {}) {
+	        return new MemberHours(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.empId = source["empId"];
+	        this.empName = source["empName"];
+	        this.todayMinutes = source["todayMinutes"];
+	        this.yesterdayMinutes = source["yesterdayMinutes"];
+	        this.weekMinutes = source["weekMinutes"];
+	        this.weekBillableMinutes = source["weekBillableMinutes"];
+	        this.weekNonBillableMinutes = source["weekNonBillableMinutes"];
+	        this.days = this.convertValues(source["days"], billing.DayTotal);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class Task {
+	    taskId: number;
+	    shortCode: string;
+	    name: string;
+	    projectCode: string;
+	    projectName: string;
+	    priority: string;
+	    statusId: number;
+	    statusType: string;
+	    statusColor: string;
+	    dueDate: string;
+	    modifiedOn: string;
+	    sprintName: string;
+	    competencyName: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Task(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.taskId = source["taskId"];
+	        this.shortCode = source["shortCode"];
+	        this.name = source["name"];
+	        this.projectCode = source["projectCode"];
+	        this.projectName = source["projectName"];
+	        this.priority = source["priority"];
+	        this.statusId = source["statusId"];
+	        this.statusType = source["statusType"];
+	        this.statusColor = source["statusColor"];
+	        this.dueDate = source["dueDate"];
+	        this.modifiedOn = source["modifiedOn"];
+	        this.sprintName = source["sprintName"];
+	        this.competencyName = source["competencyName"];
+	    }
+	}
+	export class MemberTasks {
+	    empId: number;
+	    empName: string;
+	    tasks: Task[];
+	
+	    static createFrom(source: any = {}) {
+	        return new MemberTasks(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.empId = source["empId"];
+	        this.empName = source["empName"];
+	        this.tasks = this.convertValues(source["tasks"], Task);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class BoardView {
+	    board: Board;
+	    groups: MemberTasks[];
+	    rows: MemberHours[];
+	    weekStart: string;
+	    weekEnd: string;
+	    configured: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new BoardView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.board = this.convertValues(source["board"], Board);
+	        this.groups = this.convertValues(source["groups"], MemberTasks);
+	        this.rows = this.convertValues(source["rows"], MemberHours);
+	        this.weekStart = source["weekStart"];
+	        this.weekEnd = source["weekEnd"];
+	        this.configured = source["configured"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
+	
+	
+	
 
 }
 
