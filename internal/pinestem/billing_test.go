@@ -332,3 +332,30 @@ func TestListProjectMembersWithNoCodesSkipsTheCall(t *testing.T) {
 		t.Errorf("members = %+v, want an empty slice", members)
 	}
 }
+
+// The team board's member picker offers everyone, not just the people on a
+// chosen project. Verified live: the dropdown with no ProjectCode returns the
+// full company roster rather than an error.
+func TestListCompanyMembersSendsNoProjectFilter(t *testing.T) {
+	t.Parallel()
+
+	var gotQuery url.Values
+
+	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.Query()
+		_, _ = io.WriteString(w, `{"RecordCount":2,"MultipleResults":[
+		  {"ID":4001,"Name":"Sample Member"},{"ID":4002,"Name":"Second Member"}]}`)
+	})
+
+	members, err := client.ListCompanyMembers(t.Context(), "tok", 453)
+	if err != nil {
+		t.Fatalf("ListCompanyMembers: %v", err)
+	}
+
+	if got := gotQuery["ProjectCode"]; len(got) != 0 {
+		t.Errorf("ProjectCode = %v, want none", got)
+	}
+	if len(members) != 2 || members[1].ID != 4002 {
+		t.Errorf("members = %+v", members)
+	}
+}

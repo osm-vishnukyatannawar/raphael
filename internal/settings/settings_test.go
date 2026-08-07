@@ -318,3 +318,53 @@ func TestNotificationTimeoutAccessor(t *testing.T) {
 		t.Errorf("12 gave %v/%v, want 12s/false", d, sticky)
 	}
 }
+
+// The team interval is slower than the rest by default, and clamps like the
+// others: a mistyped value must land on the floor rather than hammer Pinestem
+// once per member per member-board.
+func TestTeamRefreshIntervalDefaultsAndClamps(t *testing.T) {
+	t.Parallel()
+
+	svc := newService(t)
+
+	got, err := svc.Get(t.Context())
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.TeamRefreshIntervalSeconds != settings.DefaultTeamRefreshSeconds {
+		t.Errorf("default team interval = %d, want %d",
+			got.TeamRefreshIntervalSeconds, settings.DefaultTeamRefreshSeconds)
+	}
+
+	in := settings.Defaults()
+	in.TeamRefreshIntervalSeconds = 2
+
+	saved, err := svc.Save(t.Context(), in)
+	if err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if saved.TeamRefreshIntervalSeconds != settings.MinRefreshSeconds {
+		t.Errorf("clamped team interval = %d, want %d",
+			saved.TeamRefreshIntervalSeconds, settings.MinRefreshSeconds)
+	}
+}
+
+// A settings save shares the app_settings row with the sync stamps and must not
+// rewind them.
+func TestSaveDoesNotRewindTeamSyncStamp(t *testing.T) {
+	t.Parallel()
+
+	svc := newService(t)
+
+	if err := svc.MarkTeamSynced(t.Context(), time.Now()); err != nil {
+		t.Fatalf("MarkTeamSynced: %v", err)
+	}
+
+	saved, err := svc.Save(t.Context(), settings.Defaults())
+	if err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if saved.TeamSyncedAt == "" {
+		t.Error("TeamSyncedAt was cleared by an unrelated settings save")
+	}
+}

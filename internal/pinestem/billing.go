@@ -220,17 +220,36 @@ func (c *Client) ListProjectMembers(
 		q.Add("ProjectCode", code)
 	}
 
-	req, err := c.NewAuthenticatedRequest(
-		ctx, http.MethodGet, "Projects/ProjectMembersDropdown?"+q.Encode(),
-		token, companyID, nil,
-	)
+	return c.fetchMembers(ctx, token, companyID, q)
+}
+
+// ListCompanyMembers returns every member in the company.
+//
+// Same endpoint as ListProjectMembers with the filter omitted. That guard stays
+// where it is: an accidentally-empty project list is a bug and must not quietly
+// widen to the whole company, so asking for everyone has to be said out loud.
+func (c *Client) ListCompanyMembers(
+	ctx context.Context, token string, companyID int64,
+) ([]Member, error) {
+	return c.fetchMembers(ctx, token, companyID, url.Values{})
+}
+
+func (c *Client) fetchMembers(
+	ctx context.Context, token string, companyID int64, q url.Values,
+) ([]Member, error) {
+	path := "Projects/ProjectMembersDropdown"
+	if encoded := q.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+
+	req, err := c.NewAuthenticatedRequest(ctx, http.MethodGet, path, token, companyID, nil)
 	if err != nil {
 		return nil, err
 	}
 
 	var env membersEnvelope
 	if err := c.doJSON(req, &env); err != nil {
-		return nil, fmt.Errorf("pinestem: list project members: %w", err)
+		return nil, fmt.Errorf("pinestem: list members: %w", err)
 	}
 
 	if env.MultipleResults == nil {

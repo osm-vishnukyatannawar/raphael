@@ -353,3 +353,100 @@ func TestListAssignedTasksWithNoStatusesSkipsTheCall(t *testing.T) {
 		t.Errorf("got %d tasks, want 0", len(tasks))
 	}
 }
+
+// A team board asks about someone else, and must not be handed tasks the member
+// is merely informed on. Verified live: with ExcludeInformTo=false, asking for
+// one member returns rows owned by other people.
+func TestListTasksAssignedToExcludesInformedOn(t *testing.T) {
+	t.Parallel()
+
+	var gotQuery url.Values
+
+	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.Query()
+		_, _ = io.WriteString(w, tasksBody)
+	})
+
+	_, err := client.ListTasksAssignedTo(
+		t.Context(), "tok", 453, 4001, []string{"RES"}, []int64{4063}, true,
+	)
+	if err != nil {
+		t.Fatalf("ListTasksAssignedTo: %v", err)
+	}
+
+	if got := gotQuery.Get("ExcludeInformTo"); got != "true" {
+		t.Errorf("ExcludeInformTo = %q, want true", got)
+	}
+	// One member per call. Repeated AssignedTo returns zero rows server-side and
+	// a comma-joined list returns rows with EmpID 0, so this must stay single.
+	if got := gotQuery["AssignedTo"]; len(got) != 1 || got[0] != "4001" {
+		t.Errorf("AssignedTo = %v, want [4001]", got)
+	}
+}
+
+// The existing callers ask about the signed-in user, where a task they are
+// informed on is still theirs to see. Widening the client must not change that.
+func TestExistingCallersStillIncludeInformedOn(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		call func(*pinestem.Client) error
+	}{
+		{"ListReviewTasks", func(c *pinestem.Client) error {
+			_, err := c.ListReviewTasks(t.Context(), "tok", 453, 2286, []string{"RES"})
+
+			return err
+		}},
+		{"ListAssignedTasks", func(c *pinestem.Client) error {
+			_, err := c.ListAssignedTasks(t.Context(), "tok", 453, 2286, []string{"RES"}, []int64{4063})
+
+			return err
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var gotQuery url.Values
+
+			client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+				gotQuery = r.URL.Query()
+				_, _ = io.WriteString(w, tasksBody)
+			})
+
+			if err := tc.call(client); err != nil {
+				t.Fatalf("%s: %v", tc.name, err)
+			}
+			if got := gotQuery.Get("ExcludeInformTo"); got != "false" {
+				t.Errorf("ExcludeInformTo = %q, want false", got)
+			}
+		})
+	}
+}
+
+// A team board buckets rows by member, so it has to know who a row belongs to
+// rather than trusting that the answer matches the question.
+func TestListTasksAssignedToMapsTheAssignee(t *testing.T) {
+	t.Parallel()
+
+	client := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"RecordCount":1,"MultipleResults":[
+		  {"TaskID":1,"TaskName":"Sample","TaskShortCode":"RES-1","ProjectCode":"RES",
+		   "ProjectName":"Research","TaskStatusID":"4063","AssignedToEmpID":4001,
+		   "ModifiedOn":"2026-07-28 21:56:44","TaskDueDate":"0001-01-01 00:00:00"}]}`)
+	})
+
+	tasks, err := client.ListTasksAssignedTo(
+		t.Context(), "tok", 453, 4001, []string{"RES"}, []int64{4063}, true,
+	)
+	if err != nil {
+		t.Fatalf("ListTasksAssignedTo: %v", err)
+	}
+	if len(tasks) != 1 || tasks[0].AssignedToEmpID != 4001 {
+		t.Errorf("tasks = %+v, want AssignedToEmpID 4001", tasks)
+	}
+	// The year-1 sentinel must not reach the cache as a sortable date.
+	if tasks[0].DueDate != "" {
+		t.Errorf("DueDate = %q, want empty", tasks[0].DueDate)
+	}
+}

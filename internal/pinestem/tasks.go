@@ -48,6 +48,11 @@ type Task struct {
 	ModifiedOn     string `json:"modifiedOn"`
 	SprintName     string `json:"sprintName"`
 	CompetencyName string `json:"competencyName"`
+	// AssignedToEmpID is the same identifier as Member.ID and a billing row's
+	// EmpID. A team board groups by it rather than by the employee it asked
+	// about, because a task can come back under someone who is only informed
+	// on it.
+	AssignedToEmpID int64 `json:"assignedToEmpId"`
 }
 
 // TaskStatus is one entry from a project's status list.
@@ -87,13 +92,14 @@ type wireTask struct {
 	// A *string* on the wire, unlike the TaskStatusID query parameter, which is
 	// a number. Parsed rather than retyped so a future numeric response still
 	// decodes into something usable.
-	TaskStatusID   string `json:"TaskStatusID"`
-	StatusType     string `json:"StatusType"`
-	StatusColor    string `json:"StatusColor"`
-	TaskDueDate    string `json:"TaskDueDate"`
-	ModifiedOn     string `json:"ModifiedOn"`
-	SprintName     string `json:"SprintName"`
-	CompetencyName string `json:"CompetencyName"`
+	TaskStatusID    string `json:"TaskStatusID"`
+	StatusType      string `json:"StatusType"`
+	StatusColor     string `json:"StatusColor"`
+	TaskDueDate     string `json:"TaskDueDate"`
+	ModifiedOn      string `json:"ModifiedOn"`
+	SprintName      string `json:"SprintName"`
+	CompetencyName  string `json:"CompetencyName"`
+	AssignedToEmpID int64  `json:"AssignedToEmpID"`
 }
 
 type statusesEnvelope struct {
@@ -226,15 +232,43 @@ func (c *Client) ListReviewTasks(
 // ListAssignedTasks returns the caller's tasks across the given project codes in
 // any of the given statuses, newest-modified first.
 //
-// Both filters are mandatory in practice: the endpoint treats an omitted
-// ProjectCode as "every project" and an omitted TaskStatusID as "every status",
-// so passing neither would quietly return the caller's entire history.
+// Tasks the caller is only informed on are included: for your own list they are
+// still yours to see. A team board wants the opposite and calls
+// ListTasksAssignedTo directly.
 func (c *Client) ListAssignedTasks(
 	ctx context.Context,
 	token string,
 	companyID, userID int64,
 	projectCodes []string,
 	statusIDs []int64,
+) ([]Task, error) {
+	return c.ListTasksAssignedTo(
+		ctx, token, companyID, userID, projectCodes, statusIDs, false,
+	)
+}
+
+// ListTasksAssignedTo returns one employee's tasks across the given project
+// codes in any of the given statuses, newest-modified first.
+//
+// One employee per call, and that is not a simplification: the endpoint has no
+// working multi-assignee form. Repeating AssignedTo returns zero rows, and a
+// comma-joined list returns rows whose AssignedToEmpID is 0 -- wrong data rather
+// than an error. A board covering N people therefore costs N paginated calls.
+//
+// excludeInformTo drops tasks the employee is merely informed on. A team board
+// wants that, or one member's column fills with other people's work; the
+// caller's own lists do not.
+//
+// Both filters are mandatory in practice: the endpoint treats an omitted
+// ProjectCode as "every project" and an omitted TaskStatusID as "every status",
+// so passing neither would quietly return that person's entire history.
+func (c *Client) ListTasksAssignedTo(
+	ctx context.Context,
+	token string,
+	companyID, empID int64,
+	projectCodes []string,
+	statusIDs []int64,
+	excludeInformTo bool,
 ) ([]Task, error) {
 	if len(projectCodes) == 0 || len(statusIDs) == 0 {
 		return []Task{}, nil
@@ -243,7 +277,9 @@ func (c *Client) ListAssignedTasks(
 	var tasks []Task
 
 	for page := 1; ; page++ {
-		env, err := c.fetchTaskPage(ctx, token, companyID, userID, projectCodes, statusIDs, page)
+		env, err := c.fetchTaskPage(
+			ctx, token, companyID, empID, projectCodes, statusIDs, page, excludeInformTo,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -252,19 +288,20 @@ func (c *Client) ListAssignedTasks(
 			statusID, _ := strconv.ParseInt(t.TaskStatusID, 10, 64)
 
 			tasks = append(tasks, Task{
-				TaskID:         t.TaskID,
-				ShortCode:      t.TaskShortCode,
-				Name:           t.TaskName,
-				ProjectCode:    t.ProjectCode,
-				ProjectName:    t.ProjectName,
-				Priority:       t.PriorityType,
-				StatusID:       statusID,
-				StatusType:     t.StatusType,
-				StatusColor:    t.StatusColor,
-				DueDate:        normaliseDate(t.TaskDueDate),
-				ModifiedOn:     normaliseDate(t.ModifiedOn),
-				SprintName:     t.SprintName,
-				CompetencyName: t.CompetencyName,
+				TaskID:          t.TaskID,
+				ShortCode:       t.TaskShortCode,
+				Name:            t.TaskName,
+				ProjectCode:     t.ProjectCode,
+				ProjectName:     t.ProjectName,
+				Priority:        t.PriorityType,
+				StatusID:        statusID,
+				StatusType:      t.StatusType,
+				StatusColor:     t.StatusColor,
+				DueDate:         normaliseDate(t.TaskDueDate),
+				ModifiedOn:      normaliseDate(t.ModifiedOn),
+				SprintName:      t.SprintName,
+				CompetencyName:  t.CompetencyName,
+				AssignedToEmpID: t.AssignedToEmpID,
 			})
 		}
 
@@ -285,14 +322,17 @@ func (c *Client) ListAssignedTasks(
 func (c *Client) fetchTaskPage(
 	ctx context.Context,
 	token string,
-	companyID, userID int64,
+	companyID, empID int64,
 	projectCodes []string,
 	statusIDs []int64,
 	page int,
+	excludeInformTo bool,
 ) (*tasksEnvelope, error) {
 	q := url.Values{}
-	q.Set("AssignedTo", strconv.FormatInt(userID, 10))
-	q.Set("ExcludeInformTo", "false")
+	// Set, never Add: see ListTasksAssignedTo on why a repeated AssignedTo
+	// silently returns nothing.
+	q.Set("AssignedTo", strconv.FormatInt(empID, 10))
+	q.Set("ExcludeInformTo", strconv.FormatBool(excludeInformTo))
 	q.Set("PageLimit", strconv.Itoa(tasksPageLimit))
 	q.Set("PageNumber", strconv.Itoa(page))
 	q.Set("Pagination", "true")

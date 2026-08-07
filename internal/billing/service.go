@@ -128,7 +128,7 @@ func (s *Service) Refresh(ctx context.Context) (*Summary, error) {
 	}
 
 	now := s.now()
-	start, end := fetchWindow(now, weekStartDay)
+	start, end := FetchWindow(now, weekStartDay)
 
 	entries, err := s.fetcher.BillingEntries(ctx, requestFor(creds, start, end))
 	if err != nil {
@@ -178,11 +178,14 @@ func (s *Service) ForDate(ctx context.Context, day string) (*DayTotal, error) {
 	return &total, nil
 }
 
-// fetchWindow is the range to request: the configured week, stretched back to
+// FetchWindow is the range to request: the configured week, stretched back to
 // include yesterday. On the first day of the week yesterday falls in the
 // previous one, and without this the "Yesterday" figure would silently read
 // zero rather than being fetched.
-func fetchWindow(now time.Time, startDay time.Weekday) (time.Time, time.Time) {
+//
+// Exported because the team billing boards need exactly this window. Any caller
+// that recomputes it by hand will get the first-day-of-week case wrong.
+func FetchWindow(now time.Time, startDay time.Weekday) (time.Time, time.Time) {
 	weekStart, _ := WeekBounds(now, startDay)
 
 	start := weekStart

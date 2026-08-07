@@ -26,6 +26,13 @@ const (
 	// actively waiting on your review.
 	DefaultMyTasksRefreshSeconds = 300
 
+	// DefaultTeamRefreshSeconds is the cadence for team boards, and the slowest
+	// of the lot on purpose. Other people's queues turn over more slowly than
+	// your own, nothing here notifies, and a task board costs one paginated
+	// request *per member* -- so a short interval is far more expensive than the
+	// number suggests.
+	DefaultTeamRefreshSeconds = 600
+
 	// MinRefreshSeconds is the floor for a non-zero interval. Anything shorter
 	// would hammer Pinestem for no practical gain.
 	MinRefreshSeconds = 15
@@ -54,6 +61,7 @@ type Settings struct {
 	RefreshIntervalSeconds        int64 `json:"refreshIntervalSeconds"`
 	BillingRefreshIntervalSeconds int64 `json:"billingRefreshIntervalSeconds"`
 	MyTasksRefreshIntervalSeconds int64 `json:"myTasksRefreshIntervalSeconds"`
+	TeamRefreshIntervalSeconds    int64 `json:"teamRefreshIntervalSeconds"`
 	// WeekStartDay is 0=Sunday … 6=Saturday, matching Go's time.Weekday.
 	WeekStartDay   int64 `json:"weekStartDay"`
 	NotifyNewTasks bool  `json:"notifyNewTasks"`
@@ -69,6 +77,7 @@ type Settings struct {
 	BillingSyncedAt            string `json:"billingSyncedAt"`
 	MonitorsSyncedAt           string `json:"monitorsSyncedAt"`
 	MyTasksSyncedAt            string `json:"myTasksSyncedAt"`
+	TeamSyncedAt               string `json:"teamSyncedAt"`
 }
 
 // NotificationTimeout is the configured duration, and whether it should stay up
@@ -87,6 +96,7 @@ func Defaults() Settings {
 		RefreshIntervalSeconds:        DefaultRefreshSeconds,
 		BillingRefreshIntervalSeconds: DefaultBillingRefreshSeconds,
 		MyTasksRefreshIntervalSeconds: DefaultMyTasksRefreshSeconds,
+		TeamRefreshIntervalSeconds:    DefaultTeamRefreshSeconds,
 		WeekStartDay:                  DefaultWeekStartDay,
 		NotifyNewTasks:                true,
 		FocusOnNewTask:                true,
@@ -119,6 +129,7 @@ func (s *Service) Get(ctx context.Context) (*Settings, error) {
 		RefreshIntervalSeconds:        row.RefreshIntervalSeconds,
 		BillingRefreshIntervalSeconds: row.BillingRefreshIntervalSeconds,
 		MyTasksRefreshIntervalSeconds: row.MyTasksRefreshIntervalSeconds,
+		TeamRefreshIntervalSeconds:    row.TeamRefreshIntervalSeconds,
 		WeekStartDay:                  row.WeekStartDay,
 		NotifyNewTasks:                row.NotifyNewTasks == 1,
 		FocusOnNewTask:                row.FocusOnNewTask == 1,
@@ -137,6 +148,9 @@ func (s *Service) Get(ctx context.Context) (*Settings, error) {
 	if row.MyTasksSyncedAt != nil {
 		out.MyTasksSyncedAt = *row.MyTasksSyncedAt
 	}
+	if row.TeamSyncedAt != nil {
+		out.TeamSyncedAt = *row.TeamSyncedAt
+	}
 
 	return &out, nil
 }
@@ -154,6 +168,7 @@ func (s *Service) Save(ctx context.Context, in Settings) (*Settings, error) {
 		RefreshIntervalSeconds:        ClampInterval(in.RefreshIntervalSeconds),
 		BillingRefreshIntervalSeconds: ClampInterval(in.BillingRefreshIntervalSeconds),
 		MyTasksRefreshIntervalSeconds: ClampInterval(in.MyTasksRefreshIntervalSeconds),
+		TeamRefreshIntervalSeconds:    ClampInterval(in.TeamRefreshIntervalSeconds),
 		WeekStartDay:                  ClampWeekStartDay(in.WeekStartDay),
 		NotifyNewTasks:                boolToInt(in.NotifyNewTasks),
 		FocusOnNewTask:                boolToInt(in.FocusOnNewTask),
@@ -182,6 +197,16 @@ func (s *Service) MarkBillingSynced(ctx context.Context, at time.Time) error {
 	stamp := at.UTC().Format(time.RFC3339)
 	if err := s.queries.SetBillingSyncedAt(ctx, &stamp); err != nil {
 		return fmt.Errorf("settings: record billing sync time: %w", err)
+	}
+
+	return nil
+}
+
+// MarkTeamSynced records when the team board caches were last refreshed.
+func (s *Service) MarkTeamSynced(ctx context.Context, at time.Time) error {
+	stamp := at.UTC().Format(time.RFC3339)
+	if err := s.queries.SetTeamSyncedAt(ctx, &stamp); err != nil {
+		return fmt.Errorf("settings: record team sync time: %w", err)
 	}
 
 	return nil
