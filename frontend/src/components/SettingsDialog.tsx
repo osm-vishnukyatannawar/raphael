@@ -87,6 +87,9 @@ function SettingsForm({
   const [myTasksInterval, setMyTasksInterval] = useState(
     String(current.myTasksRefreshIntervalSeconds)
   )
+  const [teamInterval, setTeamInterval] = useState(
+    String(current.teamRefreshIntervalSeconds)
+  )
   const [weekStart, setWeekStart] = useState(String(current.weekStartDay))
   const [notify, setNotify] = useState(current.notifyNewTasks)
   const [focus, setFocus] = useState(current.focusOnNewTask)
@@ -101,6 +104,7 @@ function SettingsForm({
     isInterval(tasksInterval) &&
     isInterval(billingInterval) &&
     isInterval(myTasksInterval) &&
+    isInterval(teamInterval) &&
     isInterval(notifySeconds)
 
   async function save(event: React.FormEvent) {
@@ -118,6 +122,7 @@ function SettingsForm({
           refreshIntervalSeconds: Number(tasksInterval),
           billingRefreshIntervalSeconds: Number(billingInterval),
           myTasksRefreshIntervalSeconds: Number(myTasksInterval),
+          teamRefreshIntervalSeconds: Number(teamInterval),
           weekStartDay: Number(weekStart),
           notifyNewTasks: notify,
           focusOnNewTask: focus,
@@ -163,6 +168,12 @@ function SettingsForm({
           label="Billing hours"
           value={billingInterval}
           onChange={setBillingInterval}
+        />
+        <IntervalField
+          id="team-interval"
+          label="Team boards"
+          value={teamInterval}
+          onChange={setTeamInterval}
         />
         <p className="text-muted-foreground text-xs">
           Seconds. 0 turns automatic refresh off; anything under {MIN_INTERVAL}s

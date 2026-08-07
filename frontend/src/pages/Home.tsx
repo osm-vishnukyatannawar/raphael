@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import Dashboard from '@/pages/Dashboard'
 import Monitors from '@/pages/Monitors'
+import Team from '@/pages/Team'
 import { GetSettings, Info, SignOut } from '@wails/go/main/App'
 import { type identity, type main, type settings } from '@wails/go/models'
 
@@ -110,8 +111,8 @@ export default function Home({ session, onSignedOut }: Props) {
       </header>
 
       {/*
-        Both tabs stay mounted (forceMount) so switching away doesn't tear down
-        their event subscriptions and make them re-fetch on every switch.
+        Every tab stays mounted (forceMount) so switching away doesn't tear down
+        its event subscriptions and make it re-fetch on every switch.
       */}
       <Tabs
         defaultValue="dashboard"
@@ -121,6 +122,7 @@ export default function Home({ session, onSignedOut }: Props) {
           <TabsList>
             <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
             <TabsTrigger value="targets">Targets</TabsTrigger>
+            <TabsTrigger value="team">Team</TabsTrigger>
           </TabsList>
         </div>
 
@@ -138,6 +140,13 @@ export default function Home({ session, onSignedOut }: Props) {
             className="data-[state=inactive]:hidden"
           >
             <Monitors />
+          </TabsContent>
+          <TabsContent
+            value="team"
+            forceMount
+            className="data-[state=inactive]:hidden"
+          >
+            <Team prefs={prefs} />
           </TabsContent>
         </div>
       </Tabs>

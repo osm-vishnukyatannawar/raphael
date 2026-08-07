@@ -11,8 +11,8 @@ import {
 /**
  * The fields a row needs, structurally rather than by class.
  *
- * Both `tasks.Task` and `mytasks.Task` satisfy this; naming either one here
- * would force a cast on the other for no gain.
+ * `tasks.Task`, `mytasks.Task` and `team.Task` all satisfy this; naming any one
+ * of them here would force a cast on the others for no gain.
  */
 export type RowTask = {
   taskId: number
@@ -24,7 +24,11 @@ export type RowTask = {
   statusColor: string
   dueDate: string
   modifiedOn: string
-  isNew: boolean
+  /**
+   * Absent on team boards, which never alert and so have nothing to mark as
+   * new. Undefined reads as "not new", which is the right default.
+   */
+  isNew?: boolean
 }
 
 type Props = {
