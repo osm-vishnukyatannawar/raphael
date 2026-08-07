@@ -25,6 +25,8 @@ type AppSetting struct {
 	MyTasksRefreshIntervalSeconds int64   `json:"my_tasks_refresh_interval_seconds"`
 	NotifyNewMyTasks              int64   `json:"notify_new_my_tasks"`
 	MyTasksSyncedAt               *string `json:"my_tasks_synced_at"`
+	TeamRefreshIntervalSeconds    int64   `json:"team_refresh_interval_seconds"`
+	TeamSyncedAt                  *string `json:"team_synced_at"`
 }
 
 type BillingDay struct {
@@ -141,6 +143,61 @@ type Task struct {
 	ProjectCode    string `json:"project_code"`
 	ProjectName    string `json:"project_name"`
 	Priority       string `json:"priority"`
+	StatusType     string `json:"status_type"`
+	StatusColor    string `json:"status_color"`
+	DueDate        string `json:"due_date"`
+	ModifiedOn     string `json:"modified_on"`
+	SprintName     string `json:"sprint_name"`
+	CompetencyName string `json:"competency_name"`
+	SyncedAt       string `json:"synced_at"`
+}
+
+type TeamBoard struct {
+	ID        int64  `json:"id"`
+	Kind      string `json:"kind"`
+	Name      string `json:"name"`
+	Position  int64  `json:"position"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+type TeamBoardDay struct {
+	BoardID            int64  `json:"board_id"`
+	EmpID              int64  `json:"emp_id"`
+	Day                string `json:"day"`
+	BillableMinutes    int64  `json:"billable_minutes"`
+	NonBillableMinutes int64  `json:"non_billable_minutes"`
+}
+
+type TeamBoardMember struct {
+	BoardID int64  `json:"board_id"`
+	EmpID   int64  `json:"emp_id"`
+	EmpName string `json:"emp_name"`
+}
+
+type TeamBoardProject struct {
+	BoardID     int64  `json:"board_id"`
+	ProjectID   int64  `json:"project_id"`
+	ProjectCode string `json:"project_code"`
+	ProjectName string `json:"project_name"`
+}
+
+type TeamBoardStatus struct {
+	BoardID    int64  `json:"board_id"`
+	StatusID   int64  `json:"status_id"`
+	StatusName string `json:"status_name"`
+}
+
+type TeamBoardTask struct {
+	BoardID        int64  `json:"board_id"`
+	EmpID          int64  `json:"emp_id"`
+	TaskID         int64  `json:"task_id"`
+	ShortCode      string `json:"short_code"`
+	Name           string `json:"name"`
+	ProjectCode    string `json:"project_code"`
+	ProjectName    string `json:"project_name"`
+	Priority       string `json:"priority"`
+	StatusID       int64  `json:"status_id"`
 	StatusType     string `json:"status_type"`
 	StatusColor    string `json:"status_color"`
 	DueDate        string `json:"due_date"`

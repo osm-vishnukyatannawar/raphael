@@ -27,10 +27,17 @@ type Querier interface {
 	DeleteMyTaskStatusFilter(ctx context.Context) error
 	DeletePinestemAccount(ctx context.Context) error
 	DeleteProfile(ctx context.Context) error
+	DeleteTeamBoard(ctx context.Context, id int64) error
+	DeleteTeamBoardDays(ctx context.Context, boardID int64) error
+	DeleteTeamBoardMembers(ctx context.Context, boardID int64) error
+	DeleteTeamBoardProjects(ctx context.Context, boardID int64) error
+	DeleteTeamBoardStatuses(ctx context.Context, boardID int64) error
+	DeleteTeamBoardTasks(ctx context.Context, boardID int64) error
 	GetMonitor(ctx context.Context, id int64) (Monitor, error)
 	GetPinestemAccount(ctx context.Context) (PinestemAccount, error)
 	GetProfile(ctx context.Context) (AppProfile, error)
 	GetSettings(ctx context.Context) (AppSetting, error)
+	GetTeamBoard(ctx context.Context, id int64) (TeamBoard, error)
 	// Re-hiding an already hidden task refreshes its labels rather than failing.
 	HideMyTask(ctx context.Context, arg HideMyTaskParams) error
 	InsertBillingDay(ctx context.Context, arg InsertBillingDayParams) error
@@ -45,6 +52,12 @@ type Querier interface {
 	InsertSeenMyTask(ctx context.Context, arg InsertSeenMyTaskParams) error
 	InsertSeenTask(ctx context.Context, arg InsertSeenTaskParams) error
 	InsertTask(ctx context.Context, arg InsertTaskParams) error
+	InsertTeamBoard(ctx context.Context, arg InsertTeamBoardParams) (int64, error)
+	InsertTeamBoardDay(ctx context.Context, arg InsertTeamBoardDayParams) error
+	InsertTeamBoardMember(ctx context.Context, arg InsertTeamBoardMemberParams) error
+	InsertTeamBoardProject(ctx context.Context, arg InsertTeamBoardProjectParams) error
+	InsertTeamBoardStatus(ctx context.Context, arg InsertTeamBoardStatusParams) error
+	InsertTeamBoardTask(ctx context.Context, arg InsertTeamBoardTaskParams) error
 	ListBillingDays(ctx context.Context) ([]BillingDay, error)
 	ListHiddenMyTasks(ctx context.Context) ([]HiddenMyTask, error)
 	ListMonitorActuals(ctx context.Context) ([]MonitorActual, error)
@@ -63,6 +76,18 @@ type Querier interface {
 	// COALESCE defaults to 1 ("already seen"): a task row without a seen_task row
 	// must never render as a new-task highlight.
 	ListTasks(ctx context.Context) ([]ListTasksRow, error)
+	ListTeamBoardDays(ctx context.Context) ([]TeamBoardDay, error)
+	ListTeamBoardMembers(ctx context.Context) ([]TeamBoardMember, error)
+	ListTeamBoardProjects(ctx context.Context) ([]TeamBoardProject, error)
+	ListTeamBoardStatuses(ctx context.Context) ([]TeamBoardStatus, error)
+	// Soonest due first, undated last, newest-modified breaking ties: the same
+	// order as ListMyTasks, so a board reads like the my-tasks list does.
+	//
+	// Keep this file pure ASCII. sqlc's star expansion computes the offset of the
+	// `*` in bytes but slices the query in runes, so a single non-ASCII character
+	// anywhere above shifts the splice and emits nonsense like "SELECboard_id".
+	ListTeamBoardTasks(ctx context.Context) ([]TeamBoardTask, error)
+	ListTeamBoards(ctx context.Context) ([]TeamBoard, error)
 	// Only the user-editable fields. The sync stamps have their own setters so a
 	// settings save never rewinds them.
 	SaveSettings(ctx context.Context, arg SaveSettingsParams) error
@@ -70,9 +95,14 @@ type Querier interface {
 	SetMonitorsSyncedAt(ctx context.Context, monitorsSyncedAt *string) error
 	SetMyTasksSyncedAt(ctx context.Context, myTasksSyncedAt *string) error
 	SetTasksSyncedAt(ctx context.Context, tasksSyncedAt *string) error
+	SetTeamBoardPosition(ctx context.Context, arg SetTeamBoardPositionParams) error
+	SetTeamSyncedAt(ctx context.Context, teamSyncedAt *string) error
 	UnhideAllMyTasks(ctx context.Context) error
 	UnhideMyTask(ctx context.Context, taskID int64) error
 	UpdateMonitor(ctx context.Context, arg UpdateMonitorParams) error
+	// kind is not updatable: switching a board's kind would leave the wrong cache
+	// table populated and the wrong filters saved. Delete and recreate instead.
+	UpdateTeamBoard(ctx context.Context, arg UpdateTeamBoardParams) error
 	UpsertPinestemAccount(ctx context.Context, arg UpsertPinestemAccountParams) error
 	UpsertProfile(ctx context.Context, arg UpsertProfileParams) error
 }
