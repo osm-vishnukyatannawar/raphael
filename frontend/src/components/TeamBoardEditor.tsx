@@ -303,8 +303,10 @@ function EditorForm({
         {isTasks && selectedMembers.length > BUSY_MEMBER_COUNT && (
           <p className="text-muted-foreground text-xs">
             {selectedMembers.length} people means {selectedMembers.length}{' '}
-            separate requests per refresh — Pinestem has no way to ask about
-            several at once. Consider a slower team interval in Settings.
+            separate requests every refresh — Pinestem has no way to ask about
+            several at once. At the default 600s that is about{' '}
+            {Math.round((selectedMembers.length * 3600) / 600)} an hour; narrow
+            the statuses, or raise the team interval in Settings.
           </p>
         )}
       </div>

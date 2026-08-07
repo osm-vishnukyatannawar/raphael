@@ -65,6 +65,30 @@ export default function MultiSelect({
     onChange([...next])
   }
 
+  /*
+    Bulk actions apply to what is *visible*, not to every option. With no filter
+    typed the two are the same, so "Select all" reads literally; with one typed
+    it becomes "select everything matching", which is the only way to bulk-pick a
+    subset out of eighty projects. Selecting a filtered set must not silently
+    discard choices made under a different filter, hence the union rather than a
+    replacement.
+  */
+  function selectVisible() {
+    const next = new Set(chosen)
+    for (const option of visible) next.add(option.value)
+    onChange([...next])
+  }
+
+  function clearVisible() {
+    const next = new Set(chosen)
+    for (const option of visible) next.delete(option.value)
+    onChange([...next])
+  }
+
+  const filtering = query.trim() !== ''
+  const allVisibleChosen =
+    visible.length > 0 && visible.every((o) => chosen.has(o.value))
+
   const label =
     selected.length === 0
       ? placeholder
@@ -143,6 +167,36 @@ export default function MultiSelect({
             })
           )}
         </ul>
+
+        {options.length > 0 && (
+          <div className="flex items-center justify-between gap-2 border-t px-2 py-1.5">
+            <span className="text-muted-foreground text-xs">
+              {selected.length} selected
+            </span>
+            <div className="flex gap-1">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                disabled={visible.length === 0 || allVisibleChosen}
+                onClick={selectVisible}
+              >
+                {filtering ? `Select ${visible.length} matching` : 'Select all'}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                disabled={selected.length === 0}
+                onClick={clearVisible}
+              >
+                {filtering ? 'Clear matching' : 'Clear'}
+              </Button>
+            </div>
+          </div>
+        )}
       </PopoverContent>
     </Popover>
   )

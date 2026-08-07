@@ -305,6 +305,13 @@ means *no* filter: every active project, and every status that is not the termin
 "done" one. That default is what makes the list useful before anyone configures
 anything.
 
+Every picker in the app is the same `MultiSelect`, and each one has **Select
+all** / **Clear** in its footer — 80 projects or 85 people is not something to
+tick one at a time. With a filter typed the buttons narrow to "Select N
+matching" / "Clear matching" and act only on what is visible, unioned with
+whatever was already chosen, so bulk-picking a subset never discards selections
+made under a different filter.
+
 Statuses come from `Projects/ProjectTaskStatuses`, which answers *per project* —
 a status shared by ten projects comes back ten times — so the rows are
 deduplicated by ID. Company 453 has 15 statuses, of which exactly one
