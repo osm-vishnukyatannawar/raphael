@@ -58,7 +58,9 @@ internal/pinestem/   REST client. One file per API area. Knows HTTP, not storage
 internal/<feature>/  Service: Cached(ctx) reads SQLite, Refresh(ctx) hits the API
                      and replaces the cache. Owns its domain logic.
 app.go               Thin binding layer. Exported methods become TS bindings.
-internal/poller/     Two goroutines that call the services on an interval.
+internal/poller/     One goroutine per refresh loop, calling the services on an
+                     interval. Four of them: tasks, my tasks, billing (which
+                     also drives the monitors) and team boards.
 ```
 
 **`app.go` stays thin.** It translates between the frontend and services, and turns
@@ -70,11 +72,20 @@ Domain logic belongs in `internal/<feature>`.
 `app.go` decides whether to notify. That keeps the services testable without a
 desktop session. `internal/notify` is the only package wrapping the Wails runtime.
 
+**`internal/team` deliberately has no alerting.** Team boards report on other
+people's queues, so there is no `seen_*` table, no acknowledgement and no
+`alert.go` — the absence is the design, not a gap to fill. It is also the one
+feature whose refresh cost scales with configuration: a task board is one
+paginated call *per member*, so its filters are mandatory and its concurrency is
+bounded (`memberFetchLimit`). Hours boards are the opposite — one call covers
+every board, sliced locally by `EmpID` and `ProjectID`, as `internal/monitor`
+already does.
+
 **Refresh loops live in Go, not the frontend.** WebKitGTK and Chromium throttle
 timers in a hidden page, and the new-task alert exists to reach the user when the
-window *isn't* in front. The pollers emit `tasks:updated`, `billing:updated` and
-`monitors:updated`; the frontend subscribes with `EventsOn`/`EventsOff` and has no
-`setInterval`.
+window *isn't* in front. The pollers emit `tasks:updated`, `mytasks:updated`, `billing:updated`,
+`monitors:updated` and `team:updated`; the frontend subscribes with
+`EventsOn`/`EventsOff` and has no `setInterval`.
 
 **Caches are replaced wholesale inside one transaction** (`replaceCache` in
 `internal/tasks` and `internal/billing`, `replaceActuals` in `internal/monitor`).
@@ -113,6 +124,16 @@ Each of these caused a real bug. `README.md` has the full detail.
   always use the one from the stored auth response.
 - **`TaskStatusID = 4063`** ("In review") is hardcoded — no status-lookup endpoint
   exists. Verified for company 453.
+- **`Tasks/Filter` has no multi-assignee form.** Repeated `AssignedTo` returns 0
+  rows; comma-joined returns rows with `AssignedToEmpID: 0` — wrong data, not an
+  error. N people costs N paginated calls, which is why `internal/team` bounds
+  its concurrency and requires every filter.
+- **`ExcludeInformTo=false` includes tasks the person is only informed on.** Fine
+  for your own lists, wrong for a team board. `ListTasksAssignedTo` takes the
+  flag.
+- **`Projects/ProjectMembersDropdown` with no `ProjectCode` returns the whole
+  company.** `ListProjectMembers` still guards against an empty list; use
+  `ListCompanyMembers` to ask for everyone on purpose.
 - **Pinestem's `TimeZone` is a *Windows* identifier** (`"India Standard Time"`),
   which Go's `time.LoadLocation` cannot resolve. Day boundaries use `time.Local`;
   the string is still forwarded to the API, which expects that form.
@@ -156,3 +177,8 @@ needs cgo), and publishes archives with checksums.
   duplicated in `tsconfig.json` because the shadcn CLI reads that file.
 - `internal/ai/`, `internal/api/` and `internal/sync/` are empty scaffold
   directories.
+- **`internal/db/queries/*.sql` must stay pure ASCII.** sqlc finds the `*` in
+  `SELECT *` by byte offset but splices in runes, so a single em dash in a
+  comment above shifts the expansion by two and emits nonsense like
+  `SELECboard_id, emp_id, ...`. It fails at `sqlc generate`, not at runtime, but
+  the error names the wrong line.

@@ -96,8 +96,9 @@ internal/mytasks/        Everything assigned to you: filters, hiding, its own al
 internal/alerttext/      Shared notification-body formatting
 internal/billing/        Logged hours: per-day cache, week arithmetic
 internal/monitor/        Billing targets: monthly progress, pace, working days
+internal/team/           Team boards: other people's tasks and hours, per board
 internal/settings/       Preferences (intervals, week start, alert toggles)
-internal/poller/         The three refresh loops — see "Refresh loops" below
+internal/poller/         The four refresh loops — see "Refresh loops" below
 internal/notify/         Desktop notifications + raising the window
 internal/ai/             AI integration seam (empty)
 frontend/src/            React app
@@ -160,12 +161,17 @@ The refresh loops are **Go goroutines** (`internal/poller`), not `setInterval` i
 the frontend. WebKitGTK and Chromium both throttle timers in a hidden page —
 Chromium down to one wake per minute after five minutes — and the new-task alert
 exists precisely to reach you when the window *isn't* in front. The backend emits
-`tasks:updated`, `mytasks:updated` and `billing:updated`; the frontend subscribes.
+`tasks:updated`, `mytasks:updated`, `billing:updated` and `team:updated`; the
+frontend subscribes.
 
-There are three loops with separate intervals — tasks (60s), my tasks (300s) and
-billing (300s) — each with its own on-demand refresh button. `0` disables any of
-them; anything under 15s is raised to 15s. The target monitors ride the billing
-loop and emit `monitors:updated`.
+There are four loops with separate intervals — tasks (60s), my tasks (300s),
+billing (300s) and team boards (600s) — each with its own on-demand refresh
+button. `0` disables any of them; anything under 15s is raised to 15s. The target
+monitors ride the billing loop and emit `monitors:updated`.
+
+The team loop is the slowest by default for a reason worth knowing before turning
+it down: a task board costs **one paginated request per person on it**, so 15s on
+a ten-person board is forty requests a minute.
 
 ## Tasks in review
 
@@ -263,8 +269,34 @@ what is nearly due matters more than what someone touched five minutes ago.
 Overdue dates render in red, the same as everywhere else.
 
 Same endpoint as the review queue, `Tasks/Filter`, with `TaskStatusID` repeated
-once per status rather than pinned to `4063`. `ListReviewTasks` is now a one-line
-wrapper over `ListAssignedTasks`.
+once per status rather than pinned to `4063`. `ListReviewTasks` and
+`ListAssignedTasks` are both one-line wrappers over `ListTasksAssignedTo`.
+
+#### `Tasks/Filter` landmines
+
+Three, all found the hard way and all load-bearing for the team boards:
+
+- **`AssignedTo` takes exactly one employee.** Repeating it
+  (`AssignedTo=A&AssignedTo=B`) returns `RecordCount: 0`. Comma-joining it
+  (`AssignedTo=A,B`) returns rows whose `AssignedToEmpID` is `0` — plausible-
+  looking wrong data, not an error. There is no multi-assignee form; N people
+  means N paginated calls, which is the whole cost model of a task board.
+- **`ExcludeInformTo=false` returns tasks the person is only *informed* on.**
+  Asking about one member with it off came back with rows owned by two other
+  people. Your own lists want that (a task you are informed on is still yours to
+  see); a team board does not, or a person's column fills with other people's
+  work. `ListTasksAssignedTo` takes the flag; the personal lists pass `false`,
+  the team boards pass `true`.
+- **Rows carry `AssignedToEmpID`**, which is the same identifier as a members-
+  dropdown `ID` and a billing row's `EmpID`. Team boards group by it rather than
+  by the person they asked about, so a stray row can be dropped rather than
+  mis-attributed.
+
+`Projects/ProjectMembersDropdown` with **no** `ProjectCode` returns the whole
+company (85 members for 453) rather than erroring. `ListProjectMembers` still
+returns empty for an empty code list — an accidentally-empty filter must not
+quietly widen to everyone — so asking for the roster goes through the separate
+`ListCompanyMembers`.
 
 ### Filtering
 
@@ -390,6 +422,71 @@ failure leaves the previous cache intact rather than blanking the list.
 ```sh
 sqlite3 ~/.config/raphael/raphael.db \
   'SELECT short_code, project_code, modified_on FROM task ORDER BY modified_on DESC;'
+```
+
+## Team boards
+
+The **Team** tab holds any number of named boards over what *other* people are
+doing. Two kinds, created and named independently:
+
+- A **task board** — projects + statuses + people — shows what each person
+  currently has on, one column per person.
+- An **hours board** — projects + people — shows what each person billed today,
+  yesterday and this week, with the daily breakdown alongside.
+
+Boards are yours to name and arrange; the strip inside the tab switches between
+them. Every board needs projects and people (and statuses, for a task board)
+before it fetches anything — see the guard below.
+
+**Team boards never notify.** They report on somebody else's queue, which is not
+worth interrupting you for, so there is no first-seen tracking, no "new" badge
+and no acknowledgement — the whole `seen_*` machinery that `my_task` carries is
+absent from `internal/team` on purpose. One interval covers every board (600s by
+default, in the same Settings dialog as the others).
+
+### The two kinds cost wildly different amounts, and that shapes everything
+
+**A task board is one paginated request per person.** `Tasks/Filter` has no
+working multi-assignee filter — see the API notes below — so a five-person board
+is five requests, run four at a time (`memberFetchLimit`). This is why the team
+interval defaults to the slowest of the four, why the editor warns past ten
+people, and why every filter is mandatory.
+
+**An hours board is one request, no matter how many boards there are.** Omitting
+`EmpID` from the billing endpoint returns the whole team, and every row carries
+`EmpID` and `ProjectID`, so one call covers the union of every hours board's
+projects and the rows are sliced per board locally. This is the same trick
+`internal/monitor` uses. Adding a board is free; adding a *project* is not.
+
+Because that one call spans every board's projects, rows are bucketed by
+`(EmpID, ProjectID, day)` and filtered per board before being cached. Bucketing
+by person alone would credit a board scoped to one project with hours its members
+logged on a different board's project.
+
+### Why every filter is mandatory
+
+Pinestem reads an omitted `ProjectCode` as "every project" and an omitted
+`TaskStatusID` as "every status". An under-configured task board would therefore
+pull each member's entire history — one member with no filters is 555 tasks
+across 6 pages — multiplied by the number of members. So a board with no
+projects, no people, or (for a task board) no statuses fetches nothing at all,
+reports `configured: false`, and the UI says so rather than showing a
+mysteriously empty board. The editor blocks saving one too.
+
+### Storage
+
+`team_board` plus `team_board_project`, `team_board_member` and
+`team_board_status` for the configuration, and `team_board_task` /
+`team_board_day` for the caches, both replaced wholesale per board per refresh.
+Project codes and member names are denormalised onto the board rows for the same
+reason `monitor_project` does it: the `project` table is a cache wiped on every
+task refresh, so joining would make a saved board's labels depend on whether the
+last sync happened to succeed.
+
+```sh
+sqlite3 ~/.config/raphael/raphael.db \
+  'SELECT b.name, b.kind, COUNT(m.emp_id) FROM team_board b
+     LEFT JOIN team_board_member m ON m.board_id = b.id GROUP BY b.id;'
 ```
 
 ## Targets (monitors)
